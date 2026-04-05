@@ -8,255 +8,327 @@ dotenv.config();
 const universities = [
   {
     name: "Mehran University of Engineering and Technology (MUET)",
-    location: { country: "Pakistan", state: "Sindh", city: "Jamshoro" },
-    details: { about: "One of the top-ranked engineering universities in Pakistan.", contact: "Jamshoro, Sindh. Phone: 022-2771167" },
+    location: "Jamshoro, Sindh",
+    city: "Jamshoro",
+    state: "Sindh",
+    country: "Pakistan",
     type: "Public",
+    description: "One of the top-ranked engineering universities in Pakistan, established to provide quality education in engineering and technology.",
     thumbnail: "https://muet.edu.pk/files/images/logo.png",
-    programs: ["B.E. Civil", "B.E. Software", "M.E. Energy Systems", "MS Computer Science", "PhD Mechanical"]
+    website: "https://muet.edu.pk",
+    contact: "Jamshoro, Sindh. Phone: 022-2771167",
+    programs: [
+      { name: "B.E. Civil Engineering", type: "Bachelor", duration: "4 Years" },
+      { name: "B.E. Software Engineering", type: "Bachelor", duration: "4 Years" },
+      { name: "M.E. Energy Systems", type: "Master", duration: "2 Years" },
+      { name: "MS Computer Science", type: "Master", duration: "2 Years" },
+      { name: "PhD Mechanical Engineering", type: "PhD", duration: "3-5 Years" }
+    ]
   },
   {
     name: "University of Sindh",
-    location: { country: "Pakistan", state: "Sindh", city: "Jamshoro" },
-    details: { about: "Oldest University of Pakistan with a rich academic history.", contact: "Allama I.I. Kazi Campus, Jamshoro." },
+    location: "Jamshoro, Sindh",
+    city: "Jamshoro",
+    state: "Sindh",
+    country: "Pakistan",
     type: "Public",
+    description: "The oldest university in Pakistan, offering diverse programs in arts, sciences, and humanities.",
     thumbnail: "https://usindh.edu.pk/files/images/logo.png",
-    programs: ["BS IT", "MBA Executive", "MA English", "MS Mathematics", "PhD Physics"]
+    website: "https://usindh.edu.pk",
+    contact: "Allama I.I. Kazi Campus, Jamshoro.",
+    programs: [
+      { name: "BS Information Technology", type: "Bachelor", duration: "4 Years" },
+      { name: "MBA Executive", type: "Master", duration: "2 Years" },
+      { name: "MA English Literature", type: "Master", duration: "2 Years" },
+      { name: "MS Mathematics", type: "Master", duration: "2 Years" },
+      { name: "PhD Physics", type: "PhD", duration: "3-5 Years" }
+    ]
   },
   {
     name: "Shah Abdul Latif University",
-    location: { country: "Pakistan", state: "Sindh", city: "Khairpur" },
-    details: { about: "Premier educational institution in upper Sindh.", contact: "Khairpur, Sindh. Phone: 0243-928001" },
+    location: "Khairpur, Sindh",
+    city: "Khairpur",
+    state: "Sindh",
+    country: "Pakistan",
     type: "Public",
+    description: "A premier educational institution in upper Sindh named after the great Sufi poet Shah Abdul Latif Bhittai.",
     thumbnail: "https://salu.edu.pk/files/images/logo.png",
-    programs: ["BBA", "BS Zoology", "MS Management", "PhD Chemistry"]
+    website: "https://salu.edu.pk",
+    contact: "Khairpur, Sindh. Phone: 0243-928001",
+    programs: [
+      { name: "BBA Honours", type: "Bachelor", duration: "4 Years" },
+      { name: "BS Zoology", type: "Bachelor", duration: "4 Years" },
+      { name: "MS Management Sciences", type: "Master", duration: "2 Years" },
+      { name: "PhD Chemistry", type: "PhD", duration: "3-0 Years" }
+    ]
   },
   {
     name: "IBA Karachi",
-    location: { country: "Pakistan", state: "Sindh", city: "Karachi" },
-    details: { about: "Excellence in business and technological education.", contact: "Main Campus, University Road, Karachi." },
+    location: "Karachi, Sindh",
+    city: "Karachi",
+    state: "Sindh",
+    country: "Pakistan",
     type: "Public",
+    description: "The premier business school in Pakistan, known for its excellence in business, accounting, and technological education.",
     thumbnail: "https://iba.edu.pk/files/images/logo.png",
-    programs: ["BBA", "BS CS", "MS Data Science", "MBA", "PhD Economics"]
+    website: "https://iba.edu.pk",
+    contact: "Main Campus, University Road, Karachi.",
+    programs: [
+      { name: "BBA Business Administration", type: "Bachelor", duration: "4 Years" },
+      { name: "BS Computer Science", type: "Bachelor", duration: "4 Years" },
+      { name: "MS Data Science", type: "Master", duration: "2 Years" },
+      { name: "MBA Graduate Program", type: "Master", duration: "1.5-2 Years" },
+      { name: "PhD Economics", type: "PhD", duration: "3-5 Years" }
+    ]
   },
   {
     name: "NED University of Engineering",
-    location: { country: "Pakistan", state: "Sindh", city: "Karachi" },
-    details: { about: "Legacy institution for engineering and technology.", contact: "University Road, Karachi." },
+    location: "Karachi, Sindh",
+    city: "Karachi",
+    state: "Sindh",
+    country: "Pakistan",
     type: "Public",
+    description: "One of the oldest and most prestigious engineering institutions in the country.",
     thumbnail: "https://neduet.edu.pk/files/images/logo.png",
-    programs: ["B.E. Electrical", "B.E. Textiles", "MS Environmental", "PhD Telecom"]
+    website: "https://neduet.edu.pk",
+    contact: "University Road, Karachi.",
+    programs: [
+      { name: "B.E. Electrical Engineering", type: "Bachelor", duration: "4 Years" },
+      { name: "B.E. Textile Engineering", type: "Bachelor", duration: "4 Years" },
+      { name: "MS Environmental Engineering", type: "Master", duration: "2 Years" },
+      { name: "PhD Telecommunications", type: "PhD", duration: "3-0 Years" }
+    ]
   },
   {
     name: "Liaquat University of Medical & Health Sciences (LUMHS)",
-    location: { country: "Pakistan", state: "Sindh", city: "Jamshoro" },
-    details: { about: "Leading medical university in Pakistan.", contact: "Jamshoro, Sindh." },
+    location: "Jamshoro, Sindh",
+    city: "Jamshoro",
+    state: "Sindh",
+    country: "Pakistan",
     type: "Public",
+    description: "Leading medical university in Pakistan, providing top-tier medical and health education.",
     thumbnail: "https://lumhs.edu.pk/files/images/logo.png",
-    programs: ["MBBS", "BDS", "M.Phil Anatomy", "PhD Public Health"]
+    website: "https://lumhs.edu.pk",
+    contact: "Jamshoro, Sindh.",
+    programs: [
+      { name: "MBBS Medicine", type: "Bachelor", duration: "5 Years" },
+      { name: "BDS Dental Surgery", type: "Bachelor", duration: "4 Years" },
+      { name: "M.Phil Anatomy", type: "Master", duration: "2 Years" },
+      { name: "PhD Public Health", type: "PhD", duration: "3-2 Years" }
+    ]
   },
   {
     name: "Shaheed Mohtarma Benazir Bhutto Medical University",
-    location: { country: "Pakistan", state: "Sindh", city: "Larkana" },
-    details: { about: "Advanced healthcare education for Sindh.", contact: "Larkana, Sindh." },
+    location: "Larkana, Sindh",
+    city: "Larkana",
+    state: "Sindh",
+    country: "Pakistan",
     type: "Public",
+    description: "Focusing on advanced healthcare education for the people of Sindh.",
     thumbnail: "https://smbbmu.edu.pk/files/images/logo.png",
-    programs: ["MBBS", "BDS", "Nursing", "Masters Health System"]
+    website: "https://smbbmu.edu.pk",
+    contact: "Larkana, Sindh.",
+    programs: [
+      { name: "MBBS Program", type: "Bachelor", duration: "5 Years" },
+      { name: "BDS Program", type: "Bachelor", duration: "4 Years" },
+      { name: "BSc Nursing", type: "Bachelor", duration: "4 Years" },
+      { name: "Masters Health System", type: "Master", duration: "2 Years" }
+    ]
   },
   {
     name: "Sukkuk University of IBA",
-    location: { country: "Pakistan", state: "Sindh", city: "Sukkur" },
-    details: { about: "Pioneer in modern technological education.", contact: "Sukkur, Sindh." },
+    location: "Sukkur, Sindh",
+    city: "Sukkur",
+    state: "Sindh",
+    country: "Pakistan",
     type: "Public",
+    description: "A pioneer in modern technological and business education in upper Sindh.",
     thumbnail: "https://iba-suk.edu.pk/files/images/logo.png",
-    programs: ["BS CS", "BBA", "Education Masters", "MS Maths"]
+    website: "https://iba-suk.edu.pk",
+    contact: "Sukkur, Sindh.",
+    programs: [
+      { name: "BS Computer Science", type: "Bachelor", duration: "4 Years" },
+      { name: "BBA Business Administration", type: "Bachelor", duration: "4 Years" },
+      { name: "Education Masters", type: "Master", duration: "2 Years" },
+      { name: "MS Mathematics", type: "Master", duration: "2 Years" }
+    ]
   },
   {
     name: "People's Medical University for Women",
-    location: { country: "Pakistan", state: "Sindh", city: "Nawabshah" },
-    details: { about: "Dedicated medical education for women.", contact: "Nawabshah, Sindh." },
+    location: "Nawabshah, Sindh",
+    city: "Nawabshah",
+    state: "Sindh",
+    country: "Pakistan",
     type: "Public",
+    description: "Dedicated medical education provider exclusively for women in the region.",
     thumbnail: "https://pmuw.edu.pk/files/images/logo.png",
-    programs: ["MBBS", "DPT", "PhD Pharmacology"]
+    website: "https://pmuw.edu.pk",
+    contact: "Nawabshah, Sindh.",
+    programs: [
+      { name: "MBBS Medicine", type: "Bachelor", duration: "5 Years" },
+      { name: "DPT Physiotherapy", type: "Bachelor", duration: "5 Years" },
+      { name: "PhD Pharmacology", type: "PhD", duration: "4-0 Years" }
+    ]
   },
   {
     name: "Dow University of Health Sciences",
-    location: { country: "Pakistan", state: "Sindh", city: "Karachi" },
-    details: { about: "Top medical and health science institution in Karachi.", contact: "Baba-e-Urdu Road, Karachi." },
+    location: "Karachi, Sindh",
+    city: "Karachi",
+    state: "Sindh",
+    country: "Pakistan",
     type: "Public",
+    description: "One of the top-ranked medical and health science institutions in Karachi, producing high-quality health professionals.",
     thumbnail: "https://duhs.edu.pk/files/images/logo.png",
-    programs: ["MBBS", "BDS", "MS Biotech", "PhD Medical"]
+    website: "https://duhs.edu.pk",
+    contact: "Baba-e-Urdu Road, Karachi.",
+    programs: [
+      { name: "MBBS Medicine", type: "Bachelor", duration: "5 Years" },
+      { name: "BDS Dental Surgery", type: "Bachelor", duration: "4 Years" },
+      { name: "MS Biotechnology", type: "Master", duration: "2 Years" },
+      { name: "PhD Medical Sciences", type: "PhD", duration: "3-5 Years" }
+    ]
   }
 ];
 
 const scholarships = [
   {
     title: "Need Based Scholarship Sindh - 2026",
-    university: null,
-    location: { country: "Pakistan", state: "Sindh", city: "All" },
-    details: {
-      description: "Support for deserving students in Sindh.",
-      eligibility: "Sindh Domicile, Family income < 50,000 PKR, Minimum 2.5 CGPA.",
-      contact: "E-mail: help@scholarship.onrender.com"
-    },
+    description: "Support for deserving students in Sindh to pursue their higher education dreams.",
+    city: "All",
+    state: "Sindh",
+    country: "Pakistan",
     status: "Upcoming",
-    dates: {
-      openingDate: new Date("2026-05-01"),
-      closingDate: new Date("2026-06-30"),
-      testDate: "July 15, 2026",
-      interviewDate: "August 01, 2026"
+    testDate: "July 15, 2026",
+    interviewDate: "August 01, 2026",
+    contact: "E-mail: help@scholarship.onrender.com",
+    eligibility: {
+      description: "Sindh Domicile, Family income < 50,000 PKR, Minimum 2.5 CGPA."
     }
   },
   {
     title: "MUET Alumni Scholarship - Phase 2",
-    university: null,
-    location: { country: "Pakistan", state: "Sindh", city: "Jamshoro" },
-    details: {
-      description: "Funded by MUET alumni for engineering students.",
-      eligibility: "Current MUET student, No other scholarship, Minimum 75% Marks.",
-      contact: "Alumni Office, MUET Jamshoro."
-    },
+    description: "Financial assistance funded by MUET alumni for brilliant engineering students.",
+    city: "Jamshoro",
+    state: "Sindh",
+    country: "Pakistan",
     status: "Open",
-    dates: {
-      openingDate: new Date("2026-04-01"),
-      closingDate: new Date("2026-04-20"),
-      testDate: "April 25, 2026",
-      interviewDate: "May 05, 2026"
+    testDate: "April 25, 2026",
+    interviewDate: "May 05, 2026",
+    contact: "Alumni Office, MUET Jamshoro.",
+    eligibility: {
+      description: "Current MUET student, No other scholarship, Minimum 75% Marks."
     }
   },
   {
     title: "Sindh Education Endowment Fund (SEEF)",
-    university: null,
-    location: { country: "Pakistan", state: "Sindh", city: "All" },
-    details: {
-      description: "Government of Sindh fully funded scholarship.",
-      eligibility: "Sindh domiciled, Enrolled in Public University, Income < 100,000/Month.",
-      contact: "Education Dept, Karachi."
-    },
+    description: "Fully funded scholarship for talented and deserving students of Sindh.",
+    city: "All",
+    state: "Sindh",
+    country: "Pakistan",
     status: "Upcoming",
-    dates: {
-      openingDate: new Date("2026-08-01"),
-      closingDate: new Date("2026-09-30"),
-      testDate: "October 10, 2026",
-      interviewDate: "October 20, 2026"
+    testDate: "October 10, 2026",
+    interviewDate: "October 20, 2026",
+    contact: "Education Dept, Karachi.",
+    eligibility: {
+      description: "Sindh domiciled, Enrolled in Public University, Income < 100,000/Month."
     }
   },
   {
     title: "USAID Merit and Need Based Scholarship",
-    university: null,
-    location: { country: "Pakistan", state: "Sindh", city: "All" },
-    details: {
-      description: "International support for higher education in Pakistan.",
-      eligibility: "Merit based, Must show financial need, Available in 30+ universities.",
-      contact: "USAID local office or University Financial Aid Office."
-    },
+    description: "Empowering disadvantaged Pakistani students through international higher education support.",
+    city: "All",
+    state: "Sindh",
+    country: "Pakistan",
     status: "Upcoming",
-    dates: {
-      openingDate: new Date("2026-06-05"),
-      closingDate: new Date("2026-07-15"),
-      testDate: "August 10, 2026",
-      interviewDate: "August 20, 2026"
+    testDate: "August 10, 2026",
+    interviewDate: "August 20, 2026",
+    contact: "USAID local office or University Financial Aid Office.",
+    eligibility: {
+      description: "Merit based, Must show financial need, Available in 30+ universities."
     }
   },
   {
     title: "OGDCL National Talent Hunt Program",
-    university: null,
-    location: { country: "Pakistan", state: "Sindh", city: "All" },
-    details: {
-      description: "For underprivileged students from remote areas of Sindh.",
-      eligibility: "Domicile of specific districts, Enrolled in select partner universities.",
-      contact: "Financial Aid Office, Sukkur IBA."
-    },
+    description: "Supporting students from marginalized districts of Sindh for top-tier education.",
+    city: "All",
+    state: "Sindh",
+    country: "Pakistan",
     status: "Upcoming",
-    dates: {
-      openingDate: new Date("2026-03-25"),
-      closingDate: new Date("2026-05-15"),
-      testDate: "May 25, 2026",
-      interviewDate: "June 05, 2026"
+    testDate: "May 25, 2026",
+    interviewDate: "June 05, 2026",
+    contact: "Financial Aid Office, Sukkur IBA.",
+    eligibility: {
+      description: "Domicile of specific districts, Enrolled in select partner universities."
     }
   },
   {
     title: "IBA Karachi Talent Hunt Program",
-    university: null,
-    location: { country: "Pakistan", state: "Sindh", city: "Karachi" },
-    details: {
-      description: "Targeted support for talented students seeking admission at IBA.",
-      eligibility: "Merit based, Special consideration for first-generation students.",
-      contact: "THP Office, IBA Karachi."
-    },
+    description: "An initiative to provide quality education to talented students from diverse backgrounds.",
+    city: "Karachi",
+    state: "Sindh",
+    country: "Pakistan",
     status: "Upcoming",
-    dates: {
-      openingDate: new Date("2026-05-10"),
-      closingDate: new Date("2026-06-10"),
-      testDate: "June 20, 2026",
-      interviewDate: "June 30, 2026"
+    testDate: "June 20, 2026",
+    interviewDate: "June 30, 2026",
+    contact: "THP Office, IBA Karachi.",
+    eligibility: {
+      description: "Merit based, Special consideration for first-generation students."
     }
   },
   {
     title: "Scottish Scholarship for Women",
-    university: null,
-    location: { country: "Pakistan", state: "Sindh", city: "All" },
-    details: {
-      description: "Encouraging higher education among women in Sindh.",
-      eligibility: "Female students only, Master's degree students, All disciplines.",
-      contact: "British Council Pakistan."
-    },
+    description: "Promoting gender equality through dedicated scholarship support for women.",
+    city: "All",
+    state: "Sindh",
+    country: "Pakistan",
     status: "Upcoming",
-    dates: {
-      openingDate: new Date("2026-07-20"),
-      closingDate: new Date("2026-08-31"),
-      testDate: "No Test",
-      interviewDate: "September 10, 2026"
+    testDate: "No Test",
+    interviewDate: "September 10, 2026",
+    contact: "British Council Pakistan.",
+    eligibility: {
+      description: "Female students only, Master's degree students, All disciplines."
     }
   },
   {
     title: "PEEF Higher Education Scholarship",
-    university: null,
-    location: { country: "Pakistan", state: "Sindh", city: "All" },
-    details: {
-      description: "Punjab Education Endowment Fund support for other provinces.",
-      eligibility: "Top 20% in Intermediate, Income criteria applies.",
-      contact: "PEEF local office or Website."
-    },
+    description: "Encouraging inter-provincial academic support and excellence.",
+    city: "All",
+    state: "Sindh",
+    country: "Pakistan",
     status: "Upcoming",
-    dates: {
-      openingDate: new Date("2026-09-01"),
-      closingDate: new Date("2026-10-15"),
-      testDate: "None",
-      interviewDate: "October 30, 2026"
+    testDate: "None",
+    interviewDate: "October 30, 2026",
+    contact: "PEEF local office or Website.",
+    eligibility: {
+      description: "Top 20% in Intermediate, Income criteria applies."
     }
   },
   {
     title: "Higher Education Sindh Council Merit",
-    university: null,
-    location: { country: "Pakistan", state: "Sindh", city: "All" },
-    details: {
-      description: "State-wide merit scholarship for top performers.",
-      eligibility: "80%+ Marks in Board exam, Sindh resident.",
-      contact: "HEC Sindh Office."
-    },
+    description: "Reward for top academic performance across the province.",
+    city: "All",
+    state: "Sindh",
+    country: "Pakistan",
     status: "Upcoming",
-    dates: {
-      openingDate: new Date("2026-01-15"),
-      closingDate: new Date("2026-03-30"),
-      testDate: "April 10, 2026",
-      interviewDate: "April 20, 2026"
+    testDate: "April 10, 2026",
+    interviewDate: "April 20, 2026",
+    contact: "HEC Sindh Office.",
+    eligibility: {
+      description: "80%+ Marks in Board exam, Sindh resident."
     }
   },
   {
     title: "Private University Need Support (PUNS)",
-    university: null,
-    location: { country: "Pakistan", state: "Sindh", city: "Karachi" },
-    details: {
-      description: "Financial assistance for students in private chartered universities.",
-      eligibility: "Enrolled in HEC recognized Private University, Sindh domicile.",
-      contact: "Respective University Financial Aid Office."
-    },
+    description: "Making premium private education accessible through need-based aid.",
+    city: "Karachi",
+    state: "Sindh",
+    country: "Pakistan",
     status: "Open",
-    dates: {
-      openingDate: new Date("2026-04-01"),
-      closingDate: new Date("2026-04-18"),
-      testDate: "April 22, 2026",
-      interviewDate: "April 28, 2026"
+    testDate: "April 22, 2026",
+    interviewDate: "April 28, 2026",
+    contact: "Respective University Financial Aid Office.",
+    eligibility: {
+      description: "Enrolled in HEC recognized Private University, Sindh domicile."
     }
   }
 ];
@@ -275,14 +347,15 @@ const seedDB = async () => {
     await University.deleteMany({});
     await Scholarship.deleteMany({});
 
-    // Seed Data
+    // Seed Universities
     const savedUniversities = await University.insertMany(universities);
     console.log(`✅ Seeded ${savedUniversities.length} universities.`);
 
-    // Linking scholarships to first university as example (Optional)
+    // Linking scholarships to MUIET as example
     const linkedScholarships = scholarships.map(s => ({
       ...s,
-      university: savedUniversities[0]._id // Link to MUET for now
+      university: savedUniversities[0]._id, // Link to MUET
+      university_name: savedUniversities[0].name
     }));
 
     const savedScholarships = await Scholarship.insertMany(linkedScholarships);
