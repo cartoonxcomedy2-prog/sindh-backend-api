@@ -73,14 +73,8 @@ const extractProgramFromString = (value) => {
     };
 };
 
-// Backward compatibility guard:
-// some legacy deployments used `programs: [String]`, while newer payloads send
-// structured objects ({ name, type, duration }).
-const shouldStoreProgramNamesOnly = () => {
-    const programsPath = Scholarship?.schema?.path('programs');
-    const casterInstance = programsPath?.caster?.instance || programsPath?.$embeddedSchemaType?.instance;
-    return casterInstance === 'String';
-};
+// The Scholarship schema uses structured program objects: { name, type, duration }
+// Always store full program objects, never name-only strings.
 
 const normalizeScholarshipPayload = (payload = {}) => {
     const normalized = {};
@@ -109,52 +103,57 @@ const normalizeScholarshipPayload = (payload = {}) => {
     const coverage = tryParseJSON(payload.coverage, []);
     normalized.coverage = Array.isArray(coverage) ? coverage : [];
 
+    // --- Programs normalization (simplified & battle-tested) ---
     let rawPrograms = payload.programs;
+
+    // If sent as a JSON string, parse it first
     if (typeof rawPrograms === 'string') {
-        const parsed = tryParseLooseJSON(rawPrograms);
-        rawPrograms = parsed ?? tryParseJSON(rawPrograms, rawPrograms);
+        rawPrograms = tryParseJSON(rawPrograms, []);
     }
 
-    if (Array.isArray(rawPrograms) && rawPrograms.length === 1 && typeof rawPrograms[0] === 'string') {
-        const parsed = tryParseLooseJSON(rawPrograms[0]);
-        if (parsed) rawPrograms = parsed;
-    }
-
+    // Ensure we have an array
     const programs = Array.isArray(rawPrograms)
         ? rawPrograms
         : (rawPrograms && typeof rawPrograms === 'object' ? [rawPrograms] : []);
 
-    const normalizedPrograms = programs
-        .map((p) => {
-            let item = p;
-            if (typeof p === 'string') {
-                const parsed = tryParseLooseJSON(p);
-                if (Array.isArray(parsed)) {
-                    item = parsed[0] || {};
-                } else if (parsed && typeof parsed === 'object') {
-                    item = parsed;
-                } else {
-                    const extracted = extractProgramFromString(p);
-                    item = extracted || {};
-                }
-            }
-
-            if (Array.isArray(item)) item = item[0] || {};
-
-            const obj = item && typeof item === 'object' ? item : {};
-            const name = (obj.name || obj.programName || '').toString().trim();
-            if (!name) return null;
+    normalized.programs = programs.map((p) => {
+        // Already a clean object from the admin panel
+        if (p && typeof p === 'object' && !Array.isArray(p)) {
+            const name = (p.name || p.programName || '').toString().trim();
             return {
                 name,
-                type: (obj.type || obj.programType || obj.level || '').toString().trim(),
-                duration: (obj.duration || '').toString().trim(),
+                type: (p.type || p.programType || p.level || '').toString().trim(),
+                duration: (p.duration || '').toString().trim(),
             };
-        })
-        .filter((p) => p && p.name);
+        }
 
-    normalized.programs = shouldStoreProgramNamesOnly()
-        ? normalizedPrograms.map((p) => p.name).filter(Boolean)
-        : normalizedPrograms;
+        // Handle string entries (legacy or edge cases)
+        if (typeof p === 'string') {
+            const parsed = tryParseLooseJSON(p);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                return {
+                    name: (parsed.name || parsed.programName || '').toString().trim(),
+                    type: (parsed.type || parsed.programType || parsed.level || '').toString().trim(),
+                    duration: (parsed.duration || '').toString().trim(),
+                };
+            }
+            const extracted = extractProgramFromString(p);
+            if (extracted) {
+                return {
+                    name: (extracted.name || '').toString().trim(),
+                    type: (extracted.type || '').toString().trim(),
+                    duration: (extracted.duration || '').toString().trim(),
+                };
+            }
+            // Plain string name
+            const name = p.trim();
+            if (name) {
+                return { name, type: '', duration: '' };
+            }
+        }
+
+        return null;
+    }).filter((p) => p && p.name);
 
     const linkedUniversities = tryParseJSON(payload.linkedUniversities, []);
     normalized.linkedUniversities = Array.isArray(linkedUniversities) ? linkedUniversities : [];
