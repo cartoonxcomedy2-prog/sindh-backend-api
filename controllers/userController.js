@@ -7,7 +7,7 @@ const University = require('../models/University');
 const Scholarship = require('../models/Scholarship');
 const {
     deleteUploadedFile,
-    renameUploadedFile,
+    uploadToCloudinary,
 } = require('../utils/uploadFileUtils');
 
 const DEFAULT_COUNTRY = 'Pakistan';
@@ -346,14 +346,14 @@ const getNested = (obj, path = []) => {
     return current;
 };
 
-const removeReplacedEducationFiles = (previous = {}, next = {}) => {
+const removeReplacedEducationFiles = async (previous = {}, next = {}) => {
     const currentFiles = new Set(
         EDUCATION_FILE_PATHS.map((dotPath) =>
             dotPath.split('.').reduce((acc, part) => acc?.[part], next)
         ).filter((value) => typeof value === 'string' && value.trim())
     );
 
-    EDUCATION_FILE_PATHS.forEach((dotPath) => {
+    for (const dotPath of EDUCATION_FILE_PATHS) {
         const parts = dotPath.split('.');
         const oldFile = parts.reduce((acc, part) => acc?.[part], previous);
         const nextFile = parts.reduce((acc, part) => acc?.[part], next);
@@ -363,9 +363,9 @@ const removeReplacedEducationFiles = (previous = {}, next = {}) => {
             oldFile !== nextFile &&
             !currentFiles.has(oldFile)
         ) {
-            deleteUploadedFile(oldFile);
+            await deleteUploadedFile(oldFile);
         }
-    });
+    }
 };
 
 const toResponseUser = async (userDoc, withApplications = false) => {
@@ -453,25 +453,27 @@ const upsertEducationFromPayload = (user, educationPayload) => {
     user.education.nationalId.country = DEFAULT_COUNTRY;
 };
 
-const assignEducationFiles = (user, files = []) => {
-    if (!files.length) return;
+const assignEducationFiles = async (user, files = []) => {
+    if (!files || !files.length) return;
     const education = user.education && typeof user.education === 'object' ? { ...user.education } : {};
 
-    files.forEach((file) => {
-        const path = EDUCATION_FILE_FIELD_MAP[file.fieldname];
-        if (!path) return;
-        const previousFile = getNested(education, path);
+    for (const file of files) {
+        const pathParts = EDUCATION_FILE_FIELD_MAP[file.fieldname];
+        if (!pathParts) continue;
+        const previousFile = getNested(education, pathParts);
         const fileLabel = EDUCATION_FILE_LABEL_MAP[file.fieldname] || file.fieldname;
-        const renamed = renameUploadedFile(file.filename, [
+        
+        const renamed = await uploadToCloudinary(file.path, [
             user?.name || 'applicant',
             'education',
             fileLabel,
         ]);
-        setNested(education, path, renamed);
+        
+        setNested(education, pathParts, renamed);
         if (previousFile && previousFile !== renamed) {
-            deleteUploadedFile(previousFile);
+            await deleteUploadedFile(previousFile);
         }
-    });
+    }
 
     user.education = education;
 };
@@ -601,7 +603,17 @@ const updateUserProfile = async (req, res) => {
         if (typeof city === 'string') user.city = city;
         if (typeof state === 'string') user.state = state;
         if (typeof address === 'string') user.address = address;
-        if (typeof avatar === 'string') user.avatar = avatar;
+        if (typeof avatar === 'string' && avatar.trim()) {
+            if (avatar.startsWith('data:')) {
+                const oldAvatar = user.avatar;
+                user.avatar = await uploadToCloudinary(avatar, [user.name, 'avatar']);
+                if (oldAvatar && user.avatar !== oldAvatar) {
+                    await deleteUploadedFile(oldAvatar);
+                }
+            } else {
+                user.avatar = avatar;
+            }
+        }
         if (typeof age !== 'undefined') user.age = age;
         user.country = DEFAULT_COUNTRY;
 
@@ -636,8 +648,8 @@ const updateUserProfile = async (req, res) => {
         }
         user.education.nationalId.country = DEFAULT_COUNTRY;
 
-        assignEducationFiles(user, req.files || []);
-        removeReplacedEducationFiles(previousEducation, user.education || {});
+        await assignEducationFiles(user, req.files || []);
+        await removeReplacedEducationFiles(previousEducation, user.education || {});
 
         await user.save();
 
@@ -702,6 +714,7 @@ const updateUserByAdmin = async (req, res) => {
             state,
             address,
             isActive,
+            avatar,
         } = req.body;
 
         if (email && email !== user.email) {
@@ -730,6 +743,18 @@ const updateUserByAdmin = async (req, res) => {
         if (typeof city === 'string') user.city = city;
         if (typeof state === 'string') user.state = state;
         if (typeof address === 'string') user.address = address;
+        if (typeof avatar === 'string' && avatar.trim()) {
+            if (avatar.startsWith('data:')) {
+                const oldAvatar = user.avatar;
+                user.avatar = await uploadToCloudinary(avatar, [user.name, 'avatar']);
+                if (oldAvatar && user.avatar !== oldAvatar) {
+                    await deleteUploadedFile(oldAvatar);
+                }
+            } else {
+                user.avatar = avatar;
+            }
+        }
+
         if (typeof age !== 'undefined') user.age = age;
         if (typeof isActive === 'boolean') user.isActive = isActive;
         user.country = DEFAULT_COUNTRY;
@@ -795,7 +820,7 @@ const updateUserEducation = async (req, res) => {
         }
         const previousFile = education[section][field];
         const renameLabel = EDUCATION_FILE_LABEL_MAP[file.fieldname] || field;
-        const renamed = renameUploadedFile(file.filename, [
+        const renamed = await uploadToCloudinary(file.path, [
             user?.name || 'applicant',
             section,
             renameLabel,
@@ -804,7 +829,7 @@ const updateUserEducation = async (req, res) => {
         user.education = education;
 
         if (previousFile && previousFile !== renamed) {
-            deleteUploadedFile(previousFile);
+            await deleteUploadedFile(previousFile);
         }
         await user.save();
 
@@ -971,9 +996,10 @@ const deleteUserByAdmin = async (req, res) => {
         await Application.deleteMany({ user: req.params.id });
         await User.findByIdAndDelete(req.params.id);
 
-        [...new Set([...educationFiles, ...applicationFiles])].forEach((file) =>
-            deleteUploadedFile(file)
-        );
+        const filesToDelete = [...new Set([...educationFiles, ...applicationFiles])];
+        for (const file of filesToDelete) {
+            await deleteUploadedFile(file);
+        }
 
         return res.json({ message: 'User deleted successfully' });
     } catch (error) {
