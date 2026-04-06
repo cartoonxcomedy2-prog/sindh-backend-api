@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
 const Scholarship = require('../models/Scholarship');
 const User = require('../models/User');
 const { uploadToCloudinary, deleteUploadedFile } = require('../utils/uploadFileUtils');

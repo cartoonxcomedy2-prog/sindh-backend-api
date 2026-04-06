@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
 const Banner = require('../models/Banner');
 const { uploadToCloudinary, deleteUploadedFile } = require('../utils/uploadFileUtils');
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
