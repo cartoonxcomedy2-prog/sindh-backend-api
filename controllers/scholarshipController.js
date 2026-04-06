@@ -73,6 +73,15 @@ const extractProgramFromString = (value) => {
     };
 };
 
+// Backward compatibility guard:
+// some legacy deployments used `programs: [String]`, while newer payloads send
+// structured objects ({ name, type, duration }).
+const shouldStoreProgramNamesOnly = () => {
+    const programsPath = Scholarship?.schema?.path('programs');
+    const casterInstance = programsPath?.caster?.instance || programsPath?.$embeddedSchemaType?.instance;
+    return casterInstance === 'String';
+};
+
 const normalizeScholarshipPayload = (payload = {}) => {
     const normalized = {};
 
@@ -115,7 +124,7 @@ const normalizeScholarshipPayload = (payload = {}) => {
         ? rawPrograms
         : (rawPrograms && typeof rawPrograms === 'object' ? [rawPrograms] : []);
 
-    normalized.programs = programs
+    const normalizedPrograms = programs
         .map((p) => {
             let item = p;
             if (typeof p === 'string') {
@@ -142,6 +151,10 @@ const normalizeScholarshipPayload = (payload = {}) => {
             };
         })
         .filter((p) => p && p.name);
+
+    normalized.programs = shouldStoreProgramNamesOnly()
+        ? normalizedPrograms.map((p) => p.name).filter(Boolean)
+        : normalizedPrograms;
 
     const linkedUniversities = tryParseJSON(payload.linkedUniversities, []);
     normalized.linkedUniversities = Array.isArray(linkedUniversities) ? linkedUniversities : [];
