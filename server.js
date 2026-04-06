@@ -12,6 +12,9 @@ connectDB();
 
 const app = express();
 
+// Trust Render's proxy for accurate rate limiting
+app.set('trust proxy', 1);
+
 // Security imports
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
