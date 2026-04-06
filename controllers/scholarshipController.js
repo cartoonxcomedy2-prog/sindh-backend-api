@@ -39,6 +39,40 @@ const normalizeContactInfo = (value) => {
         .filter((item) => item.email || item.phone);
 };
 
+const cleanLooseString = (value) => {
+    if (typeof value !== 'string') return value;
+    return value.replace(/'\s*\+\s*'/g, '').replace(/\\n/g, '\n').trim();
+};
+
+const tryParseLooseJSON = (value) => {
+    if (typeof value !== 'string') return null;
+    const cleaned = cleanLooseString(value);
+    if (!cleaned || (!cleaned.includes('{') && !cleaned.includes('[')) || !cleaned.includes(':')) {
+        return null;
+    }
+    const fixed = cleaned
+        .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":')
+        .replace(/'/g, '"');
+    try {
+        return JSON.parse(fixed);
+    } catch {
+        return null;
+    }
+};
+
+const extractProgramFromString = (value) => {
+    if (typeof value !== 'string') return null;
+    const nameMatch = /name\s*[:=]\s*['"]([^'"]+)['"]/i.exec(value);
+    const typeMatch = /type\s*[:=]\s*['"]([^'"]+)['"]/i.exec(value);
+    const durationMatch = /duration\s*[:=]\s*['"]([^'"]+)['"]/i.exec(value);
+    if (!nameMatch && !typeMatch && !durationMatch) return null;
+    return {
+        name: nameMatch?.[1] || '',
+        type: typeMatch?.[1] || '',
+        duration: durationMatch?.[1] || '',
+    };
+};
+
 const normalizeScholarshipPayload = (payload = {}) => {
     const normalized = {};
 
@@ -67,30 +101,47 @@ const normalizeScholarshipPayload = (payload = {}) => {
     normalized.coverage = Array.isArray(coverage) ? coverage : [];
 
     let rawPrograms = payload.programs;
-    // If it's a string, try parsing it
     if (typeof rawPrograms === 'string') {
-        rawPrograms = tryParseJSON(rawPrograms, []);
+        const parsed = tryParseLooseJSON(rawPrograms);
+        rawPrograms = parsed ?? tryParseJSON(rawPrograms, rawPrograms);
     }
-    
-    const programs = Array.isArray(rawPrograms) ? rawPrograms : [];
-    normalized.programs = programs.map((p) => {
-        let item = p;
-        if (typeof p === 'string') {
-            // Aggressive fix for JS object literal strings if they appear
-            const fixedStr = p.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":').replace(/'/g, '"');
-            item = tryParseJSON(fixedStr, tryParseJSON(p, {}));
-        }
-        
-        // If it was a stringified array with one element, unwrap it
-        if (Array.isArray(item)) item = item[0] || {};
-        
-        const obj = item && typeof item === 'object' ? item : {};
-        return {
-            name: (obj.name || obj.programName || '').toString().trim(),
-            type: (obj.type || obj.programType || '').toString().trim(),
-            duration: (obj.duration || '').toString().trim(),
-        };
-    }).filter(p => p.name);
+
+    if (Array.isArray(rawPrograms) && rawPrograms.length === 1 && typeof rawPrograms[0] === 'string') {
+        const parsed = tryParseLooseJSON(rawPrograms[0]);
+        if (parsed) rawPrograms = parsed;
+    }
+
+    const programs = Array.isArray(rawPrograms)
+        ? rawPrograms
+        : (rawPrograms && typeof rawPrograms === 'object' ? [rawPrograms] : []);
+
+    normalized.programs = programs
+        .map((p) => {
+            let item = p;
+            if (typeof p === 'string') {
+                const parsed = tryParseLooseJSON(p);
+                if (Array.isArray(parsed)) {
+                    item = parsed[0] || {};
+                } else if (parsed && typeof parsed === 'object') {
+                    item = parsed;
+                } else {
+                    const extracted = extractProgramFromString(p);
+                    item = extracted || {};
+                }
+            }
+
+            if (Array.isArray(item)) item = item[0] || {};
+
+            const obj = item && typeof item === 'object' ? item : {};
+            const name = (obj.name || obj.programName || '').toString().trim();
+            if (!name) return null;
+            return {
+                name,
+                type: (obj.type || obj.programType || obj.level || '').toString().trim(),
+                duration: (obj.duration || '').toString().trim(),
+            };
+        })
+        .filter((p) => p && p.name);
 
     const linkedUniversities = tryParseJSON(payload.linkedUniversities, []);
     normalized.linkedUniversities = Array.isArray(linkedUniversities) ? linkedUniversities : [];
