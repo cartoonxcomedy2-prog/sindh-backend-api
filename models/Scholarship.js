@@ -32,9 +32,9 @@ const scholarshipSchema = mongoose.Schema(
         },
         programs: [
             {
-                name: String,
-                type: String, // Bachelor, Master, PhD
-                duration: String,
+                name: { type: String },
+                type: { type: String }, // Bachelor, Master, PhD
+                duration: { type: String },
             },
         ],
         contact: { type: String },
