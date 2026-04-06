@@ -218,6 +218,8 @@ const updateScholarship = async (req, res) => {
             return res.status(403).json({ message: 'Not authorized to update this scholarship' });
         }
 
+        const payload = normalizeScholarshipPayload(req.body);
+
         if (payload.thumbnail && payload.thumbnail.startsWith('data:')) {
             payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.title || scholarship.title, 'thumbnail']);
         }
