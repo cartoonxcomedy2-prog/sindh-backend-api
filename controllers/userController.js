@@ -307,7 +307,7 @@ const ensureDeadlineRemindersForUser = async (userInput, options = {}) => {
 
 const generateToken = (id) =>
     jwt.sign({ id }, process.env.JWT_SECRET, {
-        expiresIn: '30d',
+        expiresIn: process.env.JWT_EXPIRES_IN || '3d',
     });
 
 const parsePossibleJSON = (value, fallback = null) => {
