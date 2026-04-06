@@ -45,8 +45,15 @@ const normalizeScholarshipPayload = (payload = {}) => {
     const coverage = tryParseJSON(payload.coverage, []);
     normalized.coverage = Array.isArray(coverage) ? coverage : [];
 
-    const programs = tryParseJSON(payload.programs, []);
-    normalized.programs = Array.isArray(programs) ? programs : [];
+    let programs = tryParseJSON(payload.programs, []);
+    if (!Array.isArray(programs)) programs = [];
+
+    normalized.programs = programs.map((p) => {
+        const item = typeof p === 'string' ? tryParseJSON(p, {}) : p;
+        // If it was a stringified array with one element, unwrap it
+        if (Array.isArray(item)) return item[0] || {};
+        return item && typeof item === 'object' ? item : {};
+    }).filter(p => p.name || p.programName);
 
     const linkedUniversities = tryParseJSON(payload.linkedUniversities, []);
     normalized.linkedUniversities = Array.isArray(linkedUniversities) ? linkedUniversities : [];

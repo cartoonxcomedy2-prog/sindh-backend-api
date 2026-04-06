@@ -48,8 +48,15 @@ const normalizeContactInfo = (value) => {
 const normalizeUniversityPayload = (payload = {}) => {
     const normalized = { ...payload };
 
-    const programs = tryParseJSON(payload.programs, []);
-    normalized.programs = Array.isArray(programs) ? programs : [];
+    let programs = tryParseJSON(payload.programs, []);
+    if (!Array.isArray(programs)) programs = [];
+
+    normalized.programs = programs.map((p) => {
+        const item = typeof p === 'string' ? tryParseJSON(p, {}) : p;
+        // If it was a stringified array with one element, unwrap it
+        if (Array.isArray(item)) return item[0] || {};
+        return item && typeof item === 'object' ? item : {};
+    }).filter(p => p.name || p.programName);
 
     const applicationSteps = tryParseJSON(payload.applicationSteps, []);
     normalized.applicationSteps = Array.isArray(applicationSteps) ? applicationSteps : [];
