@@ -80,7 +80,7 @@ const pushNotificationToUser = async (userId, payload) => {
 const getEntityInfoForApplication = async (application) => {
     if (application.type === 'University') {
         const university =
-            typeof application.university === 'object' && application.university !== null
+            typeof application.university === 'object' && application.university !== null && application.university.name
                 ? application.university
                 : await University.findById(application.university).select('name thumbnail logo').lean();
 
@@ -93,7 +93,7 @@ const getEntityInfoForApplication = async (application) => {
     }
 
     const scholarship =
-        typeof application.scholarship === 'object' && application.scholarship !== null
+        typeof application.scholarship === 'object' && application.scholarship !== null && application.scholarship.title
             ? application.scholarship
             : await Scholarship.findById(application.scholarship).select('title thumbnail image').lean();
 
@@ -107,14 +107,14 @@ const getEntityInfoForApplication = async (application) => {
 
 const getApplicationContextInfo = async (application) => {
     const university =
-        application?.university && typeof application.university === 'object'
+        application?.university && typeof application.university === 'object' && application.university.name
             ? application.university
             : application?.university
               ? await University.findById(application.university).select('_id name thumbnail logo').lean()
               : null;
 
     const scholarship =
-        application?.scholarship && typeof application.scholarship === 'object'
+        application?.scholarship && typeof application.scholarship === 'object' && application.scholarship.title
             ? application.scholarship
             : application?.scholarship
               ? await Scholarship.findById(application.scholarship).select('_id title thumbnail image').lean()

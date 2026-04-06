@@ -405,6 +405,7 @@ const toResponseUser = async (userDoc, withApplications = false) => {
         filteredUser.applications = await Application.find({ user: user._id })
             .populate('university')
             .populate('scholarship')
+            .populate('offeredUniversities.university')
             .sort('-appliedAt')
             .lean();
     }
