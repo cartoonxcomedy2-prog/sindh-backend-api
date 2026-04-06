@@ -40,20 +40,57 @@ const normalizeContactInfo = (value) => {
 };
 
 const normalizeScholarshipPayload = (payload = {}) => {
-    const normalized = { ...payload };
+    const normalized = {};
 
+    // Basic Fields
+    if (payload.title) normalized.title = payload.title.toString().trim();
+    if (payload.description) normalized.description = payload.description.toString().trim();
+    if (payload.country) normalized.country = payload.country.toString().trim();
+    if (payload.state) normalized.state = payload.state.toString().trim();
+    if (payload.city) normalized.city = payload.city.toString().trim();
+    if (payload.address) normalized.address = payload.address.toString().trim();
+    if (payload.currency) normalized.currency = payload.currency.toString().trim();
+    if (payload.type) normalized.type = payload.type.toString().trim();
+    if (payload.duration) normalized.duration = payload.duration.toString().trim();
+    if (payload.amount) normalized.amount = payload.amount.toString().trim();
+    if (payload.provider) normalized.provider = payload.provider.toString().trim();
+    if (payload.website) normalized.website = payload.website.toString().trim();
+    if (payload.testDate) normalized.testDate = payload.testDate.toString().trim();
+    if (payload.interviewDate) normalized.interviewDate = payload.interviewDate.toString().trim();
+    if (payload.deadline) normalized.deadline = payload.deadline.toString().trim();
+    if (payload.contact) normalized.contact = payload.contact.toString().trim();
+    if (payload.thumbnail) normalized.thumbnail = payload.thumbnail;
+    if (payload.image) normalized.image = payload.image;
+
+    // Complex Fields (JSON or Arrays)
     const coverage = tryParseJSON(payload.coverage, []);
     normalized.coverage = Array.isArray(coverage) ? coverage : [];
 
-    let programs = tryParseJSON(payload.programs, []);
-    if (!Array.isArray(programs)) programs = [];
-
+    let rawPrograms = payload.programs;
+    // If it's a string, try parsing it
+    if (typeof rawPrograms === 'string') {
+        rawPrograms = tryParseJSON(rawPrograms, []);
+    }
+    
+    const programs = Array.isArray(rawPrograms) ? rawPrograms : [];
     normalized.programs = programs.map((p) => {
-        const item = typeof p === 'string' ? tryParseJSON(p, {}) : p;
+        let item = p;
+        if (typeof p === 'string') {
+            // Aggressive fix for JS object literal strings if they appear
+            const fixedStr = p.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":').replace(/'/g, '"');
+            item = tryParseJSON(fixedStr, tryParseJSON(p, {}));
+        }
+        
         // If it was a stringified array with one element, unwrap it
-        if (Array.isArray(item)) return item[0] || {};
-        return item && typeof item === 'object' ? item : {};
-    }).filter(p => p.name || p.programName);
+        if (Array.isArray(item)) item = item[0] || {};
+        
+        const obj = item && typeof item === 'object' ? item : {};
+        return {
+            name: (obj.name || obj.programName || '').toString().trim(),
+            type: (obj.type || obj.programType || '').toString().trim(),
+            duration: (obj.duration || '').toString().trim(),
+        };
+    }).filter(p => p.name);
 
     const linkedUniversities = tryParseJSON(payload.linkedUniversities, []);
     normalized.linkedUniversities = Array.isArray(linkedUniversities) ? linkedUniversities : [];
@@ -62,18 +99,19 @@ const normalizeScholarshipPayload = (payload = {}) => {
     normalized.applicationSteps = Array.isArray(applicationSteps) ? applicationSteps : [];
 
     const eligibility = tryParseJSON(payload.eligibility, {});
-    normalized.eligibility = eligibility && typeof eligibility === 'object' ? eligibility : {};
+    normalized.eligibility = {
+        minPercentage: eligibility?.minPercentage ? Number(eligibility.minPercentage) : undefined,
+        minGrade: eligibility?.minGrade?.toString() || '',
+        description: eligibility?.description?.toString() || '',
+    };
+
     normalized.contactInfo = normalizeContactInfo(payload.contactInfo);
 
     if (typeof payload.isActive !== 'undefined') {
         normalized.isActive = toBoolean(payload.isActive, true);
     }
 
-    if (typeof payload.contact !== 'undefined') {
-        normalized.contact = (payload.contact ?? '').toString().trim();
-    }
-
-    normalized.country = DEFAULT_COUNTRY;
+    normalized.country = normalized.country || DEFAULT_COUNTRY;
 
     return normalized;
 };

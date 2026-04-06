@@ -46,35 +46,70 @@ const normalizeContactInfo = (value) => {
 };
 
 const normalizeUniversityPayload = (payload = {}) => {
-    const normalized = { ...payload };
+    const normalized = {};
 
-    let programs = tryParseJSON(payload.programs, []);
-    if (!Array.isArray(programs)) programs = [];
-
-    normalized.programs = programs.map((p) => {
-        const item = typeof p === 'string' ? tryParseJSON(p, {}) : p;
-        // If it was a stringified array with one element, unwrap it
-        if (Array.isArray(item)) return item[0] || {};
-        return item && typeof item === 'object' ? item : {};
-    }).filter(p => p.name || p.programName);
-
-    const applicationSteps = tryParseJSON(payload.applicationSteps, []);
-    normalized.applicationSteps = Array.isArray(applicationSteps) ? applicationSteps : [];
-    normalized.contactInfo = normalizeContactInfo(payload.contactInfo);
-
-    if (typeof payload.contact !== 'undefined') {
-        normalized.contact = (payload.contact ?? '').toString().trim();
-    }
+    // Basic Fields
+    if (payload.name) normalized.name = payload.name.toString().trim();
+    if (payload.description) normalized.description = payload.description.toString().trim();
+    if (payload.country) normalized.country = payload.country.toString().trim();
+    if (payload.state) normalized.state = payload.state.toString().trim();
+    if (payload.city) normalized.city = payload.city.toString().trim();
+    if (payload.address) normalized.address = payload.address.toString().trim();
+    if (payload.currency) normalized.currency = payload.currency.toString().trim();
+    if (payload.type) normalized.type = payload.type.toString().trim();
+    if (payload.universityType) normalized.universityType = payload.universityType.toString().trim();
+    if (payload.website) normalized.website = payload.website.toString().trim();
+    if (payload.ranking) normalized.ranking = payload.ranking.toString().trim();
+    if (payload.testDate) normalized.testDate = payload.testDate.toString().trim();
+    if (payload.interviewDate) normalized.interviewDate = payload.interviewDate.toString().trim();
+    if (payload.deadline) normalized.deadline = payload.deadline.toString().trim();
+    if (payload.applicationFee) normalized.applicationFee = payload.applicationFee.toString().trim();
+    if (payload.applicationFees) normalized.applicationFees = payload.applicationFees.toString().trim();
+    if (payload.contact) normalized.contact = payload.contact.toString().trim();
+    if (payload.eligibility) normalized.eligibility = payload.eligibility.toString().trim();
+    if (payload.scholarshipDetails) normalized.scholarshipDetails = payload.scholarshipDetails.toString().trim();
+    if (payload.thumbnail) normalized.thumbnail = payload.thumbnail;
+    if (payload.logo) normalized.logo = payload.logo;
 
     if (typeof payload.internationalStudents !== 'undefined') {
         normalized.internationalStudents = toBoolean(payload.internationalStudents, false);
     }
-
     if (typeof payload.isActive !== 'undefined') {
         normalized.isActive = toBoolean(payload.isActive, true);
     }
 
-    normalized.country = DEFAULT_COUNTRY;
+    // Complex Fields (JSON or Arrays)
+    let rawPrograms = payload.programs;
+    if (typeof rawPrograms === 'string') {
+        rawPrograms = tryParseJSON(rawPrograms, []);
+    }
+    
+    const programs = Array.isArray(rawPrograms) ? rawPrograms : [];
+    normalized.programs = programs.map((p) => {
+        let item = p;
+        if (typeof p === 'string') {
+            const fixedStr = p.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":').replace(/'/g, '"');
+            item = tryParseJSON(fixedStr, tryParseJSON(p, {}));
+        }
+        
+        if (Array.isArray(item)) item = item[0] || {};
+        
+        const obj = item && typeof item === 'object' ? item : {};
+        return {
+            name: (obj.name || obj.programName || '').toString().trim(),
+            type: (obj.type || obj.programType || '').toString().trim(),
+            duration: (obj.duration || '').toString().trim(),
+            feeAmount: (obj.feeAmount || '').toString().trim(),
+            feeStructure: (obj.feeStructure || '').toString().trim(),
+        };
+    }).filter(p => p.name);
+
+    const applicationSteps = tryParseJSON(payload.applicationSteps, []);
+    normalized.applicationSteps = Array.isArray(applicationSteps) ? applicationSteps : [];
+
+    normalized.contactInfo = normalizeContactInfo(payload.contactInfo);
+
+    normalized.country = normalized.country || DEFAULT_COUNTRY;
 
     return normalized;
 };
