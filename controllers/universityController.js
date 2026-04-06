@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const University = require('../models/University');
 const User = require('../models/User');
+const { uploadToCloudinary, deleteUploadedFile } = require('../utils/uploadFileUtils');
 const DEFAULT_COUNTRY = 'Pakistan';
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 
@@ -177,6 +178,13 @@ const createUniversity = async (req, res) => {
             };
         }
 
+        if (payload.thumbnail && payload.thumbnail.startsWith('data:')) {
+            payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.name, 'thumbnail']);
+        }
+        if (payload.logo && payload.logo.startsWith('data:')) {
+            payload.logo = await uploadToCloudinary(payload.logo, [payload.name, 'logo']);
+        }
+
         const university = new University(payload);
         const createdUniversity = await university.save();
         res.status(201).json({ data: createdUniversity });
@@ -201,6 +209,13 @@ const updateUniversity = async (req, res) => {
         }
 
         const payload = normalizeUniversityPayload(req.body);
+        if (payload.thumbnail && payload.thumbnail.startsWith('data:')) {
+            payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.name || university.name, 'thumbnail']);
+        }
+        if (payload.logo && payload.logo.startsWith('data:')) {
+            payload.logo = await uploadToCloudinary(payload.logo, [payload.name || university.name, 'logo']);
+        }
+
         const previousThumbnail = university.thumbnail || '';
         const previousLogo = university.logo || '';
         const updatedUniversity = await University.findByIdAndUpdate(req.params.id, payload, {
@@ -208,18 +223,11 @@ const updateUniversity = async (req, res) => {
             runValidators: true,
         });
 
-        const nextThumbnail = Object.prototype.hasOwnProperty.call(payload, 'thumbnail')
-            ? payload.thumbnail || ''
-            : previousThumbnail;
-        const nextLogo = Object.prototype.hasOwnProperty.call(payload, 'logo')
-            ? payload.logo || ''
-            : previousLogo;
-
-        if (previousThumbnail && nextThumbnail !== previousThumbnail) {
-            await removeOldUploadIfUnused(University, 'thumbnail', previousThumbnail, university._id);
+        if (previousThumbnail && payload.thumbnail && previousThumbnail !== payload.thumbnail) {
+            await deleteUploadedFile(previousThumbnail);
         }
-        if (previousLogo && nextLogo !== previousLogo) {
-            await removeOldUploadIfUnused(University, 'logo', previousLogo, university._id);
+        if (previousLogo && payload.logo && previousLogo !== payload.logo) {
+            await deleteUploadedFile(previousLogo);
         }
 
         res.json({ data: updatedUniversity });

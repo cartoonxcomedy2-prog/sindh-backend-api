@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const Banner = require('../models/Banner');
+const { uploadToCloudinary, deleteUploadedFile } = require('../utils/uploadFileUtils');
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 
 const extractUploadFilename = (value) => {
@@ -58,7 +59,12 @@ const getBanners = async (req, res) => {
 // @access  Private/Admin
 const createBanner = async (req, res) => {
     try {
-        const { title, imageUrl } = req.body;
+        let { title, imageUrl } = req.body;
+        
+        if (imageUrl && imageUrl.startsWith('data:')) {
+            imageUrl = await uploadToCloudinary(imageUrl, [title, 'banner']);
+        }
+
         const banner = new Banner({ title, imageUrl });
         const createdBanner = await banner.save();
         res.status(201).json(createdBanner);
@@ -72,22 +78,26 @@ const createBanner = async (req, res) => {
 // @access  Private/Admin
 const updateBanner = async (req, res) => {
     try {
-        const { title, imageUrl } = req.body;
+        let { title, imageUrl } = req.body;
         const banner = await Banner.findById(req.params.id);
 
         if (!banner) {
             return res.status(404).json({ message: 'Banner not found' });
         }
 
+        if (imageUrl && imageUrl.startsWith('data:')) {
+            imageUrl = await uploadToCloudinary(imageUrl, [title || banner.title, 'banner']);
+        }
+
+        const previousImage = banner.imageUrl || '';
         const updatedBanner = await Banner.findByIdAndUpdate(
             req.params.id,
             { title, imageUrl },
             { new: true, runValidators: true },
         );
 
-        const nextImage = typeof imageUrl === 'string' ? imageUrl : banner.imageUrl;
-        if (banner.imageUrl && nextImage !== banner.imageUrl) {
-            await removeOldBannerUploadIfUnused(banner.imageUrl, banner._id);
+        if (previousImage && imageUrl && previousImage !== imageUrl) {
+            await deleteUploadedFile(previousImage);
         }
 
         res.json(updatedBanner);

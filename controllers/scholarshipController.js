@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const Scholarship = require('../models/Scholarship');
 const User = require('../models/User');
+const { uploadToCloudinary, deleteUploadedFile } = require('../utils/uploadFileUtils');
 const DEFAULT_COUNTRY = 'Pakistan';
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 
@@ -187,6 +188,13 @@ const createScholarship = async (req, res) => {
             };
         }
 
+        if (payload.thumbnail && payload.thumbnail.startsWith('data:')) {
+            payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.title, 'thumbnail']);
+        }
+        if (payload.image && payload.image.startsWith('data:')) {
+            payload.image = await uploadToCloudinary(payload.image, [payload.title, 'image']);
+        }
+
         const scholarship = new Scholarship(payload);
         const createdScholarship = await scholarship.save();
         res.status(201).json({ data: createdScholarship });
@@ -210,7 +218,13 @@ const updateScholarship = async (req, res) => {
             return res.status(403).json({ message: 'Not authorized to update this scholarship' });
         }
 
-        const payload = normalizeScholarshipPayload(req.body);
+        if (payload.thumbnail && payload.thumbnail.startsWith('data:')) {
+            payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.title || scholarship.title, 'thumbnail']);
+        }
+        if (payload.image && payload.image.startsWith('data:')) {
+            payload.image = await uploadToCloudinary(payload.image, [payload.title || scholarship.title, 'image']);
+        }
+
         const previousThumbnail = scholarship.thumbnail || '';
         const previousImage = scholarship.image || '';
         const updatedScholarship = await Scholarship.findByIdAndUpdate(req.params.id, payload, {
@@ -218,18 +232,11 @@ const updateScholarship = async (req, res) => {
             runValidators: true,
         });
 
-        const nextThumbnail = Object.prototype.hasOwnProperty.call(payload, 'thumbnail')
-            ? payload.thumbnail || ''
-            : previousThumbnail;
-        const nextImage = Object.prototype.hasOwnProperty.call(payload, 'image')
-            ? payload.image || ''
-            : previousImage;
-
-        if (previousThumbnail && nextThumbnail !== previousThumbnail) {
-            await removeOldUploadIfUnused(Scholarship, 'thumbnail', previousThumbnail, scholarship._id);
+        if (previousThumbnail && payload.thumbnail && previousThumbnail !== payload.thumbnail) {
+            await deleteUploadedFile(previousThumbnail);
         }
-        if (previousImage && nextImage !== previousImage) {
-            await removeOldUploadIfUnused(Scholarship, 'image', previousImage, scholarship._id);
+        if (previousImage && payload.image && previousImage !== payload.image) {
+            await deleteUploadedFile(previousImage);
         }
 
         res.json({ data: updatedScholarship });

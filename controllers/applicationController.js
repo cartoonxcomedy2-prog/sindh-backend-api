@@ -7,7 +7,7 @@ const Scholarship = require('../models/Scholarship');
 const User = require('../models/User');
 const {
     deleteUploadedFile,
-    renameUploadedFile,
+    uploadToCloudinary,
 } = require('../utils/uploadFileUtils');
 
 const APPLICATION_STATUSES = ['Applied', 'Admit Card', 'Test', 'Interview', 'Selected', 'Rejected'];
@@ -501,14 +501,14 @@ const updateApplicationStatus = async (req, res) => {
             const userName = applicant?.name || 'applicant';
 
             if (req.files.admitCard?.[0]) {
-                updateData.admitCard = renameUploadedFile(req.files.admitCard[0].filename, [
+                updateData.admitCard = await uploadToCloudinary(req.files.admitCard[0].path, [
                     userName,
                     entityName,
                     normalizeDocTag('admit-card'),
                 ]);
             }
             if (req.files.offerLetter?.[0]) {
-                updateData.offerLetter = renameUploadedFile(req.files.offerLetter[0].filename, [
+                updateData.offerLetter = await uploadToCloudinary(req.files.offerLetter[0].path, [
                     userName,
                     entityName,
                     normalizeDocTag('offer-letter'),
@@ -626,14 +626,14 @@ const updateUniversityStatus = async (req, res) => {
             const uniName = uniForName?.name || 'university';
 
             if (req.files.admitCard?.[0]) {
-                offered.admitCard = renameUploadedFile(req.files.admitCard[0].filename, [
+                offered.admitCard = await uploadToCloudinary(req.files.admitCard[0].path, [
                     applicantName,
                     uniName,
                     normalizeDocTag('admit-card'),
                 ]);
             }
             if (req.files.offerLetter?.[0]) {
-                offered.offerLetter = renameUploadedFile(req.files.offerLetter[0].filename, [
+                offered.offerLetter = await uploadToCloudinary(req.files.offerLetter[0].path, [
                     applicantName,
                     uniName,
                     normalizeDocTag('offer-letter'),

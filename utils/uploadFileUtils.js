@@ -1,3 +1,4 @@
+const cloudinary = require('../config/cloudinary');
 const fs = require('fs');
 const path = require('path');
 
@@ -10,47 +11,67 @@ const sanitizePart = (value) =>
         .replace(/^-+|-+$/g, '')
         .slice(0, 40);
 
-const safeBasename = (filename) => path.basename(String(filename || '').trim());
+const uploadToCloudinary = async (fileSource, parts = []) => {
+    if (!fileSource) return '';
 
-const deleteUploadedFile = (filename) => {
-    const safeName = safeBasename(filename);
-    if (!safeName) return;
-    const target = path.join(uploadsDir, safeName);
-    try {
-        if (fs.existsSync(target)) {
-            fs.unlinkSync(target);
-        }
-    } catch (_error) {
-        // Silent cleanup fail to avoid breaking API responses.
-    }
-};
-
-const renameUploadedFile = (filename, parts = []) => {
-    const safeName = safeBasename(filename);
-    if (!safeName) return '';
-
-    const source = path.join(uploadsDir, safeName);
-    if (!fs.existsSync(source)) return safeName;
-
-    const ext = path.extname(safeName);
     const nameParts = (Array.isArray(parts) ? parts : [parts])
         .map((part) => sanitizePart(part))
         .filter(Boolean);
 
-    if (!nameParts.length) return safeName;
-
-    const renamed = `${Date.now()}-${nameParts.join('-')}${ext}`;
-    const target = path.join(uploadsDir, renamed);
+    const publicId = `${Date.now()}-${nameParts.join('-')}`;
 
     try {
-        fs.renameSync(source, target);
-        return renamed;
-    } catch (_error) {
-        return safeName;
+        const result = await cloudinary.uploader.upload(fileSource, {
+            folder: 'sindh_uploads',
+            public_id: publicId,
+            resource_type: 'auto',
+        });
+        
+        // Clean up local temp file if it's a path
+        if (typeof fileSource === 'string' && !fileSource.startsWith('data:') && fs.existsSync(fileSource)) {
+            fs.unlinkSync(fileSource);
+        }
+        
+        return result.secure_url;
+    } catch (error) {
+        console.error('Cloudinary Upload Error:', error);
+        return '';
+    }
+};
+
+const removeFromCloudinary = async (fileUrl) => {
+    if (!fileUrl || !fileUrl.includes('cloudinary')) return;
+
+    try {
+        // Extract publicId from URL
+        const parts = fileUrl.split('/');
+        const lastPart = parts[parts.length - 1];
+        const publicId = `sindh_uploads/${lastPart.split('.')[0]}`;
+        
+        await cloudinary.uploader.destroy(publicId);
+    } catch (error) {
+        console.error('Cloudinary Delete Error:', error);
+    }
+};
+
+const deleteUploadedFile = async (filenameOrUrl) => {
+    if (!filenameOrUrl) return;
+
+    if (filenameOrUrl.startsWith('http')) {
+        await removeFromCloudinary(filenameOrUrl);
+    } else {
+        const target = path.join(uploadsDir, filenameOrUrl);
+        try {
+            if (fs.existsSync(target)) {
+                fs.unlinkSync(target);
+            }
+        } catch (_error) {}
     }
 };
 
 module.exports = {
     deleteUploadedFile,
-    renameUploadedFile,
+    uploadToCloudinary,
+    removeFromCloudinary,
 };
+
