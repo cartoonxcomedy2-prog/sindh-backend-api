@@ -14,7 +14,6 @@ const app = express();
 
 // Security imports
 const helmet = require('helmet');
-const mongoSanitize = require('express-mongo-sanitize');
 const rateLimit = require('express-rate-limit');
 
 // Middleware
@@ -23,12 +22,10 @@ app.use(cors());
 // --- Security Middleware ---
 // 1. Set security HTTP headers (fixes XSS and clickjacking vulnerabilities)
 app.use(helmet());
-// 2. Prevent NoSQL Injection attacks (sanitizes req.body, req.query, and req.params)
-app.use(mongoSanitize());
-// 3. Rate limiting (prevents DDoS and brute-force login attacks)
+// 2. Rate limiting (prevents DDoS and brute-force login attacks)
 const limiter = rateLimit({
-    windowMs: 10 * 60 * 1000, // 10 mins
-    max: 500, // limit each IP to 500 requests per 10 mins
+    windowMs: 10 * 60 * 1000,
+    max: 500,
     message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api', limiter);
