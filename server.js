@@ -52,9 +52,26 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 // ---------------------------
-app.use(sanitizeMiddleware);
 app.use(express.json({ limit: '12mb' }));
 app.use(express.urlencoded({ limit: '12mb', extended: true }));
+app.use((req, _res, next) => {
+    // Express 5 exposes req.query as a getter-only property.
+    // Some middleware expects req.query to be mutable, so we create a writable snapshot.
+    try {
+        const parsedQuery = req.query;
+        Object.defineProperty(req, 'query', {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value:
+                parsedQuery && typeof parsedQuery === 'object' ? parsedQuery : {},
+        });
+    } catch (_error) {
+        // Keep default Express behavior when query cannot be redefined.
+    }
+    next();
+});
+app.use(sanitizeMiddleware);
 app.use(morgan('dev'));
 
 // Prevent caching on all API responses - always serve fresh data
