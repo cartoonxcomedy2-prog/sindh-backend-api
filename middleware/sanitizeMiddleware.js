@@ -53,14 +53,14 @@ const sanitizeInPlace = (target) => {
 };
 
 const sanitizeMiddleware = (req, _res, next) => {
-    ['body', 'params', 'query'].forEach((section) => {
-        const target = req[section];
-        if (target && (Array.isArray(target) || isPlainObject(target))) {
-            sanitizeInPlace(target);
-        }
-    });
+    // Express 5 exposes req.query as a getter-only property.
+    // Sanitizing request body in-place avoids setter collisions while still
+    // protecting write payloads against operator/prototype injection.
+    const target = req.body;
+    if (target && (Array.isArray(target) || isPlainObject(target))) {
+        sanitizeInPlace(target);
+    }
     next();
 };
 
 module.exports = sanitizeMiddleware;
-

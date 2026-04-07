@@ -3,6 +3,7 @@ const path = require('path');
 const Scholarship = require('../models/Scholarship');
 const User = require('../models/User');
 const { uploadToCloudinary, deleteUploadedFile } = require('../utils/uploadFileUtils');
+const { invalidateCacheByTags } = require('../middleware/responseCache');
 const DEFAULT_COUNTRY = 'Pakistan';
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 
@@ -233,6 +234,14 @@ const normalizeEmail = (rawEmail) =>
         .trim()
         .toLowerCase();
 
+const invalidateScholarshipCaches = () =>
+    invalidateCacheByTags([
+        'scholarships-public',
+        'scholarships-admin-list',
+        'applications-admin-list',
+        'applications-user-list',
+    ]);
+
 // @desc    Fetch all scholarships (public)
 // @route   GET /api/scholarships
 // @access  Public
@@ -321,6 +330,7 @@ const createScholarship = async (req, res) => {
 
         const scholarship = new Scholarship(payload);
         const createdScholarship = await scholarship.save();
+        invalidateScholarshipCaches();
         res.status(201).json({ data: createdScholarship });
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -371,6 +381,7 @@ const updateScholarship = async (req, res) => {
             await deleteUploadedFile(previousImage);
         }
 
+        invalidateScholarshipCaches();
         res.json({ data: updatedScholarship });
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -390,6 +401,7 @@ const deleteScholarship = async (req, res) => {
 
         await removeOldUploadIfUnused(Scholarship, 'thumbnail', deletedScholarship.thumbnail, deletedScholarship._id);
         await removeOldUploadIfUnused(Scholarship, 'image', deletedScholarship.image, deletedScholarship._id);
+        invalidateScholarshipCaches();
 
         res.json({ message: 'Scholarship deleted successfully' });
     } catch (error) {
@@ -470,6 +482,7 @@ const upsertScholarshipAccount = async (req, res) => {
             userId: user._id,
         };
         await scholarship.save();
+        invalidateScholarshipCaches();
 
         res.json({
             message: 'Scholarship credentials saved successfully',

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const Banner = require('../models/Banner');
 const { uploadToCloudinary, deleteUploadedFile } = require('../utils/uploadFileUtils');
+const { invalidateCacheByTag } = require('../middleware/responseCache');
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 
 const extractUploadFilename = (value) => {
@@ -70,6 +71,7 @@ const createBanner = async (req, res) => {
 
         const banner = new Banner({ title, imageUrl });
         const createdBanner = await banner.save();
+        invalidateCacheByTag('banners-public');
         res.status(201).json(createdBanner);
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -106,6 +108,7 @@ const updateBanner = async (req, res) => {
             await deleteUploadedFile(previousImage);
         }
 
+        invalidateCacheByTag('banners-public');
         res.json(updatedBanner);
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -124,6 +127,7 @@ const deleteBanner = async (req, res) => {
         }
 
         await removeOldBannerUploadIfUnused(deletedBanner.imageUrl, deletedBanner._id);
+        invalidateCacheByTag('banners-public');
 
         res.json({ message: 'Banner deleted successfully' });
     } catch (error) {

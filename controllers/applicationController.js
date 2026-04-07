@@ -12,6 +12,8 @@ const {
     readStoredFileBuffer,
     uploadToCloudinary,
 } = require('../utils/uploadFileUtils');
+const { enqueueJob } = require('../utils/jobQueue');
+const { invalidateCacheByTags } = require('../middleware/responseCache');
 
 const APPLICATION_STATUSES = ['Applied', 'Admit Card', 'Test', 'Interview', 'Selected', 'Rejected'];
 const APPLICATION_UPDATE_FIELDS = new Set([
@@ -199,6 +201,38 @@ const pushNotificationToUser = async (userId, payload) => {
     });
 };
 
+const enqueueUserNotification = (userId, payload, dedupeHint = '') => {
+    if (!userId) return;
+
+    const normalizedUserId = toObjectIdString(userId);
+    const notificationType = String(payload?.type || 'generic');
+    const applicationId = toObjectIdString(payload?.data?.applicationId);
+    const status = String(payload?.data?.status || '');
+    const dedupeKey = [
+        'user-notify',
+        normalizedUserId,
+        notificationType,
+        applicationId,
+        status,
+        dedupeHint,
+    ].join(':');
+
+    const result = enqueueJob({
+        name: 'user-notification',
+        dedupeKey,
+        timeoutMs: 12000,
+        handler: async () => {
+            await pushNotificationToUser(normalizedUserId, payload);
+        },
+    });
+
+    if (!result.enqueued) {
+        pushNotificationToUser(normalizedUserId, payload).catch((error) => {
+            console.error('Notification fallback warning:', error?.message || error);
+        });
+    }
+};
+
 const getEntityInfoForApplication = async (application) => {
     if (application.type === 'University') {
         const university =
@@ -257,7 +291,9 @@ const emitApplicationStatusNotification = async (application, status) => {
     const context = await getApplicationContextInfo(application);
     const safeStatus = status || application.status || 'Updated';
 
-    await pushNotificationToUser(application.user, {
+    enqueueUserNotification(
+        application.user,
+        {
         type: 'application-status',
         title: `${info.entityName} - Status Updated`,
         body: `Admission status for ${info.entityName} is now ${safeStatus}.`,
@@ -280,14 +316,16 @@ const emitApplicationStatusNotification = async (application, status) => {
             scholarshipName: context.scholarshipName,
             scholarshipThumbnail: context.scholarshipThumbnail,
         },
-    });
+        },
+        `status:${safeStatus}`
+    );
 };
 
 const emitApplicationSubmitNotification = async (application) => {
     const info = await getEntityInfoForApplication(application);
     const context = await getApplicationContextInfo(application);
 
-    await pushNotificationToUser(application.user, {
+    enqueueUserNotification(application.user, {
         type: 'application-submit',
         title: `${info.entityName} - Application Submitted`,
         body: `Your application for ${info.entityName} was submitted successfully.`,
@@ -310,7 +348,7 @@ const emitApplicationSubmitNotification = async (application) => {
             scholarshipName: context.scholarshipName,
             scholarshipThumbnail: context.scholarshipThumbnail,
         },
-    });
+    }, 'submit');
 };
 
 const emitApplicationDocumentNotification = async (
@@ -327,7 +365,7 @@ const emitApplicationDocumentNotification = async (
     const context = await getApplicationContextInfo(application);
     const mergedContext = { ...context, ...contextOverride };
 
-    await pushNotificationToUser(application.user, {
+    enqueueUserNotification(application.user, {
         type: 'application-document',
         title: `${entityName} - ${docLabel} Uploaded`,
         body: `${docLabel} for ${entityName} has been uploaded.`,
@@ -350,7 +388,7 @@ const emitApplicationDocumentNotification = async (
             scholarshipName: mergedContext.scholarshipName || '',
             scholarshipThumbnail: mergedContext.scholarshipThumbnail || '',
         },
-    });
+    }, `document:${normalizeDocTag(docLabel)}`);
 };
 
 const populateApplicationQuery = (query) =>
@@ -413,6 +451,14 @@ const APPLICATION_DOC_LABEL_MAP = {
     admitCard: 'admit-card',
     offerLetter: 'offer-letter',
 };
+
+const APPLICATION_CACHE_TAGS = [
+    'applications-summary',
+    'applications-admin-list',
+    'applications-user-list',
+];
+
+const invalidateApplicationCaches = () => invalidateCacheByTags(APPLICATION_CACHE_TAGS);
 
 const EDUCATION_DOC_SPEC = [
     { key: 'national-id', path: ['nationalId', 'file'] },
@@ -852,6 +898,7 @@ const applyToOpportunity = async (req, res) => {
             Application.findById(application._id)
         ).lean();
 
+        invalidateApplicationCaches();
         return res.status(201).json({ data: populated });
     } catch (error) {
         return res.status(400).json({ message: error.message });
@@ -979,6 +1026,7 @@ const updateApplicationStatus = async (req, res) => {
         const updated = await populateApplicationQuery(
             Application.findById(application._id)
         ).lean();
+        invalidateApplicationCaches();
         return res.json({ data: updated });
     } catch (error) {
         return res.status(400).json({ message: error.message });
@@ -1090,7 +1138,7 @@ const updateUniversityStatus = async (req, res) => {
         const context = await getApplicationContextInfo(application);
 
         if (offered.status !== previousStatus) {
-            await pushNotificationToUser(application.user, {
+            enqueueUserNotification(application.user, {
                 type: 'application-university-status',
                 title: `${uni?.name || 'University'} - Status Updated`,
                 body: `Admission status for ${uni?.name || 'University'} is now ${offered.status}.`,
@@ -1112,7 +1160,7 @@ const updateUniversityStatus = async (req, res) => {
                     scholarshipName: context.scholarshipName,
                     scholarshipThumbnail: context.scholarshipThumbnail,
                 },
-            });
+            }, `university-status:${toObjectIdString(uni?._id || uniId)}:${offered.status}`);
         }
 
         if (offered.admitCard && offered.admitCard !== previousAdmitCard) {
@@ -1159,6 +1207,7 @@ const updateUniversityStatus = async (req, res) => {
             Application.findById(application._id)
         ).lean();
 
+        invalidateApplicationCaches();
         return res.json({ data: updated });
     } catch (error) {
         return res.status(400).json({ message: error.message });
@@ -1193,6 +1242,7 @@ const bulkUpdateStatus = async (req, res) => {
             updatedIds.push(String(app._id));
         }
 
+        invalidateApplicationCaches();
         return res.json({ message: 'Bulk status update completed', data: { updatedIds } });
     } catch (error) {
         return res.status(400).json({ message: error.message });
@@ -1443,6 +1493,7 @@ const deleteApplication = async (req, res) => {
             await deleteUploadedFile(file);
         }
 
+        invalidateApplicationCaches();
         return res.json({ message: 'Application deleted successfully' });
     } catch (error) {
         return res.status(500).json({ message: error.message });

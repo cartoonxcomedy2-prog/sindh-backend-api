@@ -3,6 +3,7 @@ const path = require('path');
 const University = require('../models/University');
 const User = require('../models/User');
 const { uploadToCloudinary, deleteUploadedFile } = require('../utils/uploadFileUtils');
+const { invalidateCacheByTags } = require('../middleware/responseCache');
 const DEFAULT_COUNTRY = 'Pakistan';
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 
@@ -163,6 +164,14 @@ const normalizeEmail = (rawEmail) =>
         .trim()
         .toLowerCase();
 
+const invalidateUniversityCaches = () =>
+    invalidateCacheByTags([
+        'universities-public',
+        'universities-admin-list',
+        'applications-admin-list',
+        'applications-user-list',
+    ]);
+
 // @desc    Fetch all universities (public)
 // @route   GET /api/universities
 // @access  Public
@@ -240,6 +249,7 @@ const createUniversity = async (req, res) => {
 
         const university = new University(payload);
         const createdUniversity = await university.save();
+        invalidateUniversityCaches();
         res.status(201).json({ data: createdUniversity });
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -289,6 +299,7 @@ const updateUniversity = async (req, res) => {
             await deleteUploadedFile(previousLogo);
         }
 
+        invalidateUniversityCaches();
         res.json({ data: updatedUniversity });
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -308,6 +319,7 @@ const deleteUniversity = async (req, res) => {
 
         await removeOldUploadIfUnused(University, 'thumbnail', deletedUniversity.thumbnail, deletedUniversity._id);
         await removeOldUploadIfUnused(University, 'logo', deletedUniversity.logo, deletedUniversity._id);
+        invalidateUniversityCaches();
 
         res.json({ message: 'University deleted successfully' });
     } catch (error) {
@@ -388,6 +400,7 @@ const upsertUniversityAccount = async (req, res) => {
             userId: user._id,
         };
         await university.save();
+        invalidateUniversityCaches();
 
         res.json({
             message: 'University credentials saved successfully',

@@ -10,6 +10,7 @@ const {
     downloadStoredFile,
     uploadToCloudinary,
 } = require('../utils/uploadFileUtils');
+const { invalidateCacheByTags } = require('../middleware/responseCache');
 
 const DEFAULT_COUNTRY = 'Pakistan';
 
@@ -95,6 +96,15 @@ const DUMMY_PASSWORD_HASH =
     '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36f7M1E4J4Yx3fRbN7b58w2';
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+
+const invalidateUserCaches = (userId) => {
+    const tags = ['users-list'];
+    const safeId = String(userId || '').trim();
+    if (safeId) {
+        tags.push(`users-id:${safeId}`);
+    }
+    invalidateCacheByTags(tags);
+};
 
 const escapeRegex = (value) =>
     String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -764,6 +774,7 @@ const updateUserProfile = async (req, res) => {
         await user.save();
 
         const userResponse = await toResponseUser(user, false);
+        invalidateUserCaches(user._id);
         return res.json(userResponse);
     } catch (error) {
         return res.status(400).json({ message: error.message });
@@ -942,6 +953,7 @@ const updateUserByAdmin = async (req, res) => {
         await user.save();
 
         const userResponse = await toResponseUser(user, false);
+        invalidateUserCaches(user._id);
         return res.json({ data: userResponse });
     } catch (error) {
         return res.status(400).json({ message: error.message });
@@ -1002,6 +1014,7 @@ const updateUserEducation = async (req, res) => {
         await user.save();
 
         const userResponse = await toResponseUser(user, false);
+        invalidateUserCaches(user._id);
         return res.json({ data: userResponse });
     } catch (error) {
         return res.status(400).json({ message: error.message });
@@ -1092,6 +1105,7 @@ const deleteUserEducationField = async (req, res) => {
         await user.save();
 
         const userResponse = await toResponseUser(user, false);
+        invalidateUserCaches(user._id);
         return res.json({ data: userResponse });
     } catch (error) {
         return res.status(400).json({ message: error.message });
@@ -1179,6 +1193,12 @@ const deleteUserByAdmin = async (req, res) => {
             await deleteUploadedFile(file);
         }
 
+        invalidateUserCaches(req.params.id);
+        invalidateCacheByTags([
+            'applications-summary',
+            'applications-admin-list',
+            'applications-user-list',
+        ]);
         return res.json({ message: 'User deleted successfully' });
     } catch (error) {
         return res.status(500).json({ message: error.message });
