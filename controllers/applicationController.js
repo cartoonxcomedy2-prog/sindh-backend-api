@@ -1,4 +1,6 @@
 const archiver = require('archiver');
+const path = require('path');
+const PDFDocument = require('pdfkit');
 const Application = require('../models/Application');
 const University = require('../models/University');
 const Scholarship = require('../models/Scholarship');
@@ -302,6 +304,204 @@ const normalizeOfferedUniversities = (offeredUniversities = []) => {
         })
         .filter(Boolean);
 };
+
+const APPLICATION_DOC_LABEL_MAP = {
+    admitCard: 'admit-card',
+    offerLetter: 'offer-letter',
+};
+
+const EDUCATION_DOC_SPEC = [
+    { key: 'national-id', path: ['nationalId', 'file'] },
+    { key: 'matric-transcript', path: ['matric', 'transcript'] },
+    { key: 'matric-certificate', path: ['matric', 'certificate'] },
+    { key: 'intermediate-transcript', path: ['intermediate', 'transcript'] },
+    { key: 'intermediate-certificate', path: ['intermediate', 'certificate'] },
+    { key: 'bachelor-transcript', path: ['bachelor', 'transcript'] },
+    { key: 'bachelor-certificate', path: ['bachelor', 'certificate'] },
+    { key: 'masters-transcript', path: ['masters', 'transcript'] },
+    { key: 'masters-certificate', path: ['masters', 'certificate'] },
+    { key: 'passport', path: ['international', 'passportPdf'] },
+    { key: 'english-test-transcript', path: ['international', 'testTranscript'] },
+    { key: 'cv', path: ['international', 'cv'] },
+    { key: 'recommendation-letter', path: ['international', 'recommendationLetter'] },
+    { key: 'father-cnic', path: ['personalInfo', 'fatherCnicFile'] },
+];
+
+const sanitizeFilePart = (value, fallback = 'document') => {
+    const cleaned = String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 60);
+    return cleaned || fallback;
+};
+
+const extractFileExtension = (value, fallback = '.pdf') => {
+    const raw = String(value || '').trim();
+    if (!raw) return fallback;
+
+    let pathname = raw;
+    if (/^https?:\/\//i.test(raw)) {
+        try {
+            pathname = new URL(raw).pathname || raw;
+        } catch (_error) {
+            pathname = raw;
+        }
+    }
+
+    const ext = path.extname(pathname.split('?')[0]).toLowerCase();
+    if (!ext || ext.length > 10) return fallback;
+    return ext;
+};
+
+const composeDownloadFileName = (parts = [], extension = '.pdf') => {
+    const fileBase = (parts || [])
+        .map((part) => sanitizeFilePart(part, ''))
+        .filter(Boolean)
+        .join('-');
+    const ext = extension.startsWith('.') ? extension : `.${extension}`;
+    return `${fileBase || 'document'}${ext}`;
+};
+
+const toDateLabel = (value) => {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toISOString().slice(0, 10);
+};
+
+const toLineValue = (value) => {
+    if (value == null) return '-';
+    const str = String(value).trim();
+    return str || '-';
+};
+
+const addSummaryHeading = (doc, title) => {
+    doc.moveDown(0.8);
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('#111827').text(title);
+    doc.moveDown(0.2);
+};
+
+const addSummaryLine = (doc, label, value) => {
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text(`${label}: `, {
+        continued: true,
+    });
+    doc.font('Helvetica').fontSize(10).fillColor('#111827').text(toLineValue(value));
+};
+
+const addSummaryProgramLines = (doc, selectedPrograms = []) => {
+    if (!Array.isArray(selectedPrograms) || selectedPrograms.length === 0) {
+        addSummaryLine(doc, 'Selected Programs', '-');
+        return;
+    }
+
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text('Selected Programs:');
+    selectedPrograms.forEach((program, index) => {
+        const name = toLineValue(program?.programName || program?.name);
+        const type = toLineValue(program?.programType || program?.type);
+        const duration = toLineValue(program?.duration);
+        doc.font('Helvetica').fontSize(10).text(
+            `${index + 1}. ${name} | Level: ${type} | Duration: ${duration}`
+        );
+    });
+};
+
+const createApplicationSummaryPdfBuffer = async ({ application, user }) =>
+    new Promise((resolve, reject) => {
+        const doc = new PDFDocument({
+            size: 'A4',
+            margin: 40,
+            info: {
+                Title: 'Application Summary',
+                Author: 'Sindh Backend',
+            },
+        });
+
+        const chunks = [];
+        doc.on('data', (chunk) => chunks.push(chunk));
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+        doc.on('error', reject);
+
+        const userName = user?.name || 'Applicant';
+        const education = user?.education || {};
+        const personalInfo = education?.personalInfo || {};
+        const nationalId = education?.nationalId || {};
+        const matric = education?.matric || {};
+        const intermediate = education?.intermediate || {};
+        const bachelor = education?.bachelor || {};
+        const masters = education?.masters || {};
+        const international = education?.international || {};
+        const targetName =
+            application?.type === 'University'
+                ? application?.university?.name || '-'
+                : application?.scholarship?.title || '-';
+
+        doc.font('Helvetica-Bold').fontSize(18).fillColor('#111827').text('Application Summary');
+        doc
+            .font('Helvetica')
+            .fontSize(10)
+            .fillColor('#374151')
+            .text(`Generated: ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`);
+
+        addSummaryHeading(doc, 'Applicant');
+        addSummaryLine(doc, 'Name', userName);
+        addSummaryLine(doc, 'Email', user?.email);
+        addSummaryLine(doc, 'Phone', user?.phone);
+        addSummaryLine(doc, 'Country', user?.country || 'Pakistan');
+        addSummaryLine(doc, 'State', user?.state);
+        addSummaryLine(doc, 'City', user?.city);
+        addSummaryLine(doc, 'Address', user?.address);
+
+        addSummaryHeading(doc, 'Application');
+        addSummaryLine(doc, 'Application ID', application?._id);
+        addSummaryLine(doc, 'Type', application?.type);
+        addSummaryLine(doc, 'Target', targetName);
+        addSummaryLine(doc, 'Status', application?.status || 'Applied');
+        addSummaryLine(doc, 'Applied At', toDateLabel(application?.appliedAt));
+        addSummaryLine(doc, 'Test Date', toDateLabel(application?.testDate));
+        addSummaryLine(doc, 'Interview Date', toDateLabel(application?.interviewDate));
+        addSummaryProgramLines(doc, application?.selectedPrograms || []);
+
+        addSummaryHeading(doc, 'Personal Documents');
+        addSummaryLine(doc, 'Father Name', personalInfo?.fatherName || user?.fatherName);
+        addSummaryLine(doc, 'Date of Birth', personalInfo?.dateOfBirth || user?.dateOfBirth);
+        addSummaryLine(doc, 'National ID Number', nationalId?.idNumber || personalInfo?.cnicNumber);
+        addSummaryLine(doc, 'Father CNIC Number', personalInfo?.fatherCnicNumber);
+        addSummaryLine(doc, 'Father Contact Number', personalInfo?.fatherContactNumber);
+
+        addSummaryHeading(doc, 'Matric');
+        addSummaryLine(doc, 'School Name', matric?.schoolName);
+        addSummaryLine(doc, 'Passing Year', matric?.passingYear);
+        addSummaryLine(doc, 'Grade / CGPA', matric?.grade);
+
+        addSummaryHeading(doc, 'Intermediate');
+        addSummaryLine(doc, 'College Name', intermediate?.collegeName);
+        addSummaryLine(doc, 'Passing Year', intermediate?.passingYear);
+        addSummaryLine(doc, 'Grade / CGPA', intermediate?.grade);
+
+        addSummaryHeading(doc, 'Bachelor');
+        addSummaryLine(doc, 'Degree Name', bachelor?.degreeName);
+        addSummaryLine(doc, 'Institute Name', bachelor?.collegeName || bachelor?.schoolName);
+        addSummaryLine(doc, 'Passing Year', bachelor?.passingYear);
+        addSummaryLine(doc, 'Grade / CGPA', bachelor?.grade);
+
+        addSummaryHeading(doc, 'Masters');
+        addSummaryLine(doc, 'Degree Name', masters?.degreeName);
+        addSummaryLine(doc, 'Institute Name', masters?.collegeName || masters?.schoolName);
+        addSummaryLine(doc, 'Passing Year', masters?.passingYear);
+        addSummaryLine(doc, 'Grade / CGPA', masters?.grade);
+
+        addSummaryHeading(doc, 'International');
+        addSummaryLine(doc, 'Passport Number', international?.passportNumber);
+        addSummaryLine(doc, 'English Test Type', international?.englishTestType);
+        addSummaryLine(doc, 'English Test Score', international?.testScore);
+
+        doc.end();
+    });
+
+const getNestedValue = (source, pathParts = []) =>
+    (pathParts || []).reduce((acc, part) => (acc && typeof acc === 'object' ? acc[part] : undefined), source);
 
 const ADMIN_APPLICATION_LIST_SELECT = [
     'user',
@@ -683,6 +883,24 @@ const updateUniversityStatus = async (req, res) => {
             offered.status = req.body.status;
         }
 
+        const shouldClearAdmitCard =
+            Object.prototype.hasOwnProperty.call(req.body || {}, 'admitCard') &&
+            (req.body.admitCard === null ||
+                req.body.admitCard === '' ||
+                String(req.body.admitCard).toLowerCase() === 'null');
+        const shouldClearOfferLetter =
+            Object.prototype.hasOwnProperty.call(req.body || {}, 'offerLetter') &&
+            (req.body.offerLetter === null ||
+                req.body.offerLetter === '' ||
+                String(req.body.offerLetter).toLowerCase() === 'null');
+
+        if (shouldClearAdmitCard) {
+            offered.admitCard = undefined;
+        }
+        if (shouldClearOfferLetter) {
+            offered.offerLetter = undefined;
+        }
+
         if (req.files && typeof req.files === 'object' && !Array.isArray(req.files)) {
             const uniForName =
                 typeof offered.university === 'object' && offered.university !== null
@@ -842,10 +1060,44 @@ const resolveDocFile = (application, field, uniId) => {
         const offered = (application.offeredUniversities || []).find(
             (entry) => toObjectIdString(entry.university) === toObjectIdString(uniId)
         );
-        return offered?.[field] || '';
+        return {
+            file: offered?.[field] || '',
+            offered,
+        };
     }
 
-    return application[field] || '';
+    return {
+        file: application[field] || '',
+        offered: null,
+    };
+};
+
+const buildApplicationDocFallbackName = async ({
+    application,
+    field,
+    uniId,
+    offeredEntry,
+    sourceFile,
+}) => {
+    const user = await User.findById(application.user).select('name').lean();
+    const docLabel = APPLICATION_DOC_LABEL_MAP[field] || sanitizeFilePart(field, 'document');
+    const userLabel = sanitizeFilePart(user?.name || 'applicant', 'applicant');
+
+    let universityLabel = '';
+    if (uniId) {
+        if (offeredEntry?.university && typeof offeredEntry.university === 'object') {
+            universityLabel = sanitizeFilePart(offeredEntry.university.name || 'university', '');
+        } else {
+            const university = await University.findById(uniId).select('name').lean();
+            universityLabel = sanitizeFilePart(university?.name || 'university', '');
+        }
+    }
+
+    const extension = extractFileExtension(sourceFile, '.pdf');
+    return composeDownloadFileName(
+        [userLabel, universityLabel, docLabel].filter(Boolean),
+        extension
+    );
 };
 
 // @desc    Download document from application
@@ -866,14 +1118,21 @@ const downloadApplicationDocument = async (req, res) => {
         const allowed = await assertInstitutionAccess(application, req.user);
         if (!allowed) return res.status(403).json({ message: 'Unauthorized' });
 
-        const filename = resolveDocFile(application, field, uniId);
+        const { file: filename, offered } = resolveDocFile(application, field, uniId);
         if (!filename) return res.status(404).json({ message: 'Document not found' });
 
         const safeDownloadName = normalizeDownloadName(downloadName);
+        const fallbackName = await buildApplicationDocFallbackName({
+            application,
+            field,
+            uniId,
+            offeredEntry: offered,
+            sourceFile: filename,
+        });
         const sent = await downloadStoredFile(
             res,
             filename,
-            safeDownloadName || ''
+            safeDownloadName || fallbackName
         );
         if (!sent) {
             return res.status(404).json({ message: 'File does not exist on server' });
@@ -889,7 +1148,10 @@ const downloadApplicationDocument = async (req, res) => {
 // @access  Private
 const downloadApplicationBundle = async (req, res) => {
     try {
-        const application = await Application.findById(req.params.id).populate('offeredUniversities.university');
+        const application = await Application.findById(req.params.id)
+            .populate('offeredUniversities.university')
+            .populate('university', 'name')
+            .populate('scholarship', 'title');
         if (!application) return res.status(404).json({ message: 'Application not found' });
 
         const allowed = await assertInstitutionAccess(application, req.user);
@@ -897,50 +1159,89 @@ const downloadApplicationBundle = async (req, res) => {
 
         const docs = [];
         const seenFiles = new Set();
-        const addDoc = (namePrefix, file) => {
-            if (!file || seenFiles.has(file)) return;
-            seenFiles.add(file);
-            docs.push({ name: `${namePrefix}-${file}`, file });
+        const addDoc = (file, nameParts = []) => {
+            const normalizedFile = String(file || '').trim();
+            if (!normalizedFile || seenFiles.has(normalizedFile)) return;
+            seenFiles.add(normalizedFile);
+            docs.push({ file: normalizedFile, nameParts });
         };
 
-        addDoc('main-admit', application.admitCard);
-        addDoc('main-offer', application.offerLetter);
+        const user = await User.findById(application.user)
+            .select(
+                [
+                    'name',
+                    'email',
+                    'phone',
+                    'country',
+                    'state',
+                    'city',
+                    'address',
+                    'fatherName',
+                    'dateOfBirth',
+                    'education',
+                ].join(' ')
+            )
+            .lean();
+
+        const userLabel = sanitizeFilePart(user?.name || 'applicant', 'applicant');
+        addDoc(application.admitCard, [userLabel, 'application', 'admit-card']);
+        addDoc(application.offerLetter, [userLabel, 'application', 'offer-letter']);
 
         (application.offeredUniversities || []).forEach((entry) => {
-            const uniName = (entry.university?.name || toObjectIdString(entry.university) || 'university')
-                .replace(/[^a-zA-Z0-9_-]/g, '-')
-                .slice(0, 40);
-
-            addDoc(`${uniName}-admit`, entry.admitCard);
-            addDoc(`${uniName}-offer`, entry.offerLetter);
+            const uniName = sanitizeFilePart(
+                entry.university?.name || toObjectIdString(entry.university) || 'university',
+                'university'
+            );
+            addDoc(entry.admitCard, [userLabel, uniName, 'admit-card']);
+            addDoc(entry.offerLetter, [userLabel, uniName, 'offer-letter']);
         });
 
-        const user = await User.findById(application.user)
-            .select('education')
-            .lean();
         const education = user?.education || {};
-        addDoc('applicant-cnic', education?.nationalId?.file);
-        addDoc('applicant-matric-transcript', education?.matric?.transcript);
-        addDoc('applicant-matric-certificate', education?.matric?.certificate);
-        addDoc('applicant-intermediate-transcript', education?.intermediate?.transcript);
-        addDoc('applicant-intermediate-certificate', education?.intermediate?.certificate);
-        addDoc('applicant-bachelor-transcript', education?.bachelor?.transcript);
-        addDoc('applicant-bachelor-certificate', education?.bachelor?.certificate);
-        addDoc('applicant-masters-transcript', education?.masters?.transcript);
-        addDoc('applicant-masters-certificate', education?.masters?.certificate);
-        addDoc('applicant-passport', education?.international?.passportPdf);
-        addDoc('applicant-test-transcript', education?.international?.testTranscript);
-        addDoc('applicant-cv', education?.international?.cv);
-        addDoc('applicant-recommendation', education?.international?.recommendationLetter);
+        EDUCATION_DOC_SPEC.forEach((spec) => {
+            const file = getNestedValue(education, spec.path);
+            addDoc(file, [userLabel, spec.key]);
+        });
 
         const existingDocs = [];
+        const usedArchiveNames = new Set();
+        const ensureUniqueArchiveName = (rawName) => {
+            const ext = path.extname(rawName);
+            const baseName = ext ? rawName.slice(0, -ext.length) : rawName;
+            let candidate = rawName;
+            let index = 2;
+            while (usedArchiveNames.has(candidate)) {
+                candidate = `${baseName}-${index}${ext}`;
+                index += 1;
+            }
+            usedArchiveNames.add(candidate);
+            return candidate;
+        };
+
         for (const doc of docs) {
             const fileData = await readStoredFileBuffer(doc.file);
             if (!fileData) continue;
+            const ext = extractFileExtension(fileData.fileName || doc.file, '.pdf');
+            const archiveName = ensureUniqueArchiveName(
+                composeDownloadFileName(doc.nameParts, ext)
+            );
             existingDocs.push({
                 ...doc,
                 buffer: fileData.buffer,
-                fileName: normalizeDownloadName(fileData.fileName) || 'document',
+                archiveName,
+            });
+        }
+
+        const summaryBuffer = await createApplicationSummaryPdfBuffer({
+            application,
+            user,
+        });
+        if (summaryBuffer?.length) {
+            const summaryName = ensureUniqueArchiveName(
+                composeDownloadFileName([userLabel, 'application-summary'], '.pdf')
+            );
+            existingDocs.unshift({
+                buffer: summaryBuffer,
+                archiveName: summaryName,
             });
         }
 
@@ -948,21 +1249,37 @@ const downloadApplicationBundle = async (req, res) => {
             return res.status(404).json({ message: 'No documents available for bundle' });
         }
 
+        const requestedBundleName = normalizeDownloadName(req.query.downloadName);
+        const fallbackBundleName = composeDownloadFileName(
+            [userLabel, 'application', toObjectIdString(application._id), 'bundle'],
+            '.zip'
+        );
+        const bundleName = requestedBundleName
+            ? requestedBundleName.toLowerCase().endsWith('.zip')
+                ? requestedBundleName
+                : `${requestedBundleName}.zip`
+            : fallbackBundleName;
+
         res.setHeader('Content-Type', 'application/zip');
         res.setHeader(
             'Content-Disposition',
-            `attachment; filename="application-${application._id}-docs.zip"`
+            `attachment; filename="${bundleName}"`
         );
 
         const archive = archiver('zip', { zlib: { level: 9 } });
+        archive.on('warning', () => {});
         archive.on('error', (err) => {
-            throw err;
+            if (!res.headersSent) {
+                res.status(500).json({ message: 'Failed to create ZIP bundle' });
+                return;
+            }
+            res.destroy(err);
         });
 
         archive.pipe(res);
         existingDocs.forEach((doc) =>
             archive.append(doc.buffer, {
-                name: `${doc.name}-${doc.fileName}`,
+                name: doc.archiveName,
             })
         );
         await archive.finalize();
