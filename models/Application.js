@@ -63,5 +63,19 @@ applicationSchema.index({ university: 1, appliedAt: -1 });
 applicationSchema.index({ scholarship: 1, appliedAt: -1 });
 applicationSchema.index({ status: 1, appliedAt: -1 });
 applicationSchema.index({ 'offeredUniversities.university': 1, appliedAt: -1 });
+applicationSchema.index(
+    { user: 1, university: 1 },
+    {
+        unique: true,
+        partialFilterExpression: { university: { $type: 'objectId' } },
+    }
+);
+applicationSchema.index(
+    { user: 1, scholarship: 1 },
+    {
+        unique: true,
+        partialFilterExpression: { scholarship: { $type: 'objectId' } },
+    }
+);
 
 module.exports = mongoose.model('Application', applicationSchema);

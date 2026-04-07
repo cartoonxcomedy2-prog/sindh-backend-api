@@ -1,5 +1,3 @@
-const fs = require('fs');
-const path = require('path');
 const archiver = require('archiver');
 const Application = require('../models/Application');
 const University = require('../models/University');
@@ -7,10 +5,22 @@ const Scholarship = require('../models/Scholarship');
 const User = require('../models/User');
 const {
     deleteUploadedFile,
+    downloadStoredFile,
+    normalizeDownloadName,
+    readStoredFileBuffer,
     uploadToCloudinary,
 } = require('../utils/uploadFileUtils');
 
 const APPLICATION_STATUSES = ['Applied', 'Admit Card', 'Test', 'Interview', 'Selected', 'Rejected'];
+const APPLICATION_UPDATE_FIELDS = new Set([
+    'status',
+    'selectedPrograms',
+    'testDate',
+    'interviewDate',
+    'admitCard',
+    'offerLetter',
+    'offeredUniversities',
+]);
 
 const parsePossibleJSON = (value, fallback = null) => {
     if (value == null) return fallback;
@@ -27,6 +37,12 @@ const toObjectIdString = (value) => {
     if (typeof value === 'string') return value;
     if (typeof value === 'object' && value._id) return String(value._id);
     return String(value);
+};
+
+const toPositiveInt = (value, fallback) => {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return parsed;
 };
 
 const findUniversityForAdmin = async (userId) =>
@@ -352,12 +368,40 @@ const getAdminApplicationsList = async (req, res) => {
             query = { scholarship: scholarship._id };
         }
 
-        const apps = await populateAdminApplicationListQuery(
-            Application.find(query)
-                .select(ADMIN_APPLICATION_LIST_SELECT)
-                .sort('-appliedAt')
-        ).lean();
-        return res.json({ data: apps });
+        const page = toPositiveInt(req.query.page, 1);
+        const limit = Math.min(toPositiveInt(req.query.limit, 20), 100);
+        const shouldPaginate = Boolean(req.query.page) || Boolean(req.query.limit);
+
+        if (!shouldPaginate) {
+            const apps = await populateAdminApplicationListQuery(
+                Application.find(query)
+                    .select(ADMIN_APPLICATION_LIST_SELECT)
+                    .sort('-appliedAt')
+            ).lean();
+            return res.json({ data: apps });
+        }
+
+        const skip = (page - 1) * limit;
+        const [apps, total] = await Promise.all([
+            populateAdminApplicationListQuery(
+                Application.find(query)
+                    .select(ADMIN_APPLICATION_LIST_SELECT)
+                    .sort('-appliedAt')
+                    .skip(skip)
+                    .limit(limit)
+            ).lean(),
+            Application.countDocuments(query),
+        ]);
+
+        return res.json({
+            data: apps,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+            },
+        });
     } catch (error) {
         return res.status(500).json({ message: error.message });
     }
@@ -371,8 +415,8 @@ const getAllApplicationsTotal = async (req, res) => {
         if (req.user.role !== 'admin') {
             return res.status(403).json({ message: 'Unauthorized access' });
         }
-        const total = await Application.find({}).select('_id').sort('-appliedAt').lean();
-        return res.json({ data: total });
+        const total = await Application.countDocuments({});
+        return res.json({ data: { total } });
     } catch (error) {
         return res.status(500).json({ message: error.message });
     }
@@ -439,14 +483,24 @@ const applyToOpportunity = async (req, res) => {
             parsePossibleJSON(req.body.selectedPrograms, req.body.selectedPrograms)
         );
 
-        const application = await Application.create({
-            user: req.user._id,
-            university: type === 'University' ? targetId : undefined,
-            scholarship: type === 'Scholarship' ? targetId : undefined,
-            type,
-            status: 'Applied',
-            selectedPrograms,
-        });
+        let application;
+        try {
+            application = await Application.create({
+                user: req.user._id,
+                university: type === 'University' ? targetId : undefined,
+                scholarship: type === 'Scholarship' ? targetId : undefined,
+                type,
+                status: 'Applied',
+                selectedPrograms,
+            });
+        } catch (error) {
+            if (error?.code === 11000) {
+                return res.status(400).json({
+                    message: `You have already applied for this ${type.toLowerCase()}.`,
+                });
+            }
+            throw error;
+        }
 
         await emitApplicationSubmitNotification(application);
 
@@ -477,7 +531,12 @@ const updateApplicationStatus = async (req, res) => {
         const previousOfferedFiles = (application.offeredUniversities || []).flatMap(
             (entry) => [entry?.admitCard, entry?.offerLetter].filter(Boolean)
         );
-        const updateData = { ...req.body };
+        const updateData = {};
+        Object.entries(req.body || {}).forEach(([key, value]) => {
+            if (APPLICATION_UPDATE_FIELDS.has(key)) {
+                updateData[key] = value;
+            }
+        });
 
         const offeredUniversities = parsePossibleJSON(updateData.offeredUniversities, updateData.offeredUniversities);
         if (Array.isArray(offeredUniversities)) {
@@ -506,6 +565,9 @@ const updateApplicationStatus = async (req, res) => {
                     entityName,
                     normalizeDocTag('admit-card'),
                 ]);
+                if (!updateData.admitCard) {
+                    throw new Error('Failed to upload admit card');
+                }
             }
             if (req.files.offerLetter?.[0]) {
                 updateData.offerLetter = await uploadToCloudinary(req.files.offerLetter[0].path, [
@@ -513,6 +575,9 @@ const updateApplicationStatus = async (req, res) => {
                     entityName,
                     normalizeDocTag('offer-letter'),
                 ]);
+                if (!updateData.offerLetter) {
+                    throw new Error('Failed to upload offer letter');
+                }
             }
         }
 
@@ -528,20 +593,20 @@ const updateApplicationStatus = async (req, res) => {
         await application.save();
 
         if (previousAdmitCard && previousAdmitCard !== application.admitCard) {
-            deleteUploadedFile(previousAdmitCard);
+            await deleteUploadedFile(previousAdmitCard);
         }
         if (previousOfferLetter && previousOfferLetter !== application.offerLetter) {
-            deleteUploadedFile(previousOfferLetter);
+            await deleteUploadedFile(previousOfferLetter);
         }
 
         const currentOfferedFiles = (application.offeredUniversities || []).flatMap(
             (entry) => [entry?.admitCard, entry?.offerLetter].filter(Boolean)
         );
-        previousOfferedFiles.forEach((oldFile) => {
+        for (const oldFile of previousOfferedFiles) {
             if (!currentOfferedFiles.includes(oldFile)) {
-                deleteUploadedFile(oldFile);
+                await deleteUploadedFile(oldFile);
             }
-        });
+        }
 
         if (application.status !== previousStatus) {
             await emitApplicationStatusNotification(application, application.status);
@@ -631,6 +696,9 @@ const updateUniversityStatus = async (req, res) => {
                     uniName,
                     normalizeDocTag('admit-card'),
                 ]);
+                if (!offered.admitCard) {
+                    throw new Error('Failed to upload admit card');
+                }
             }
             if (req.files.offerLetter?.[0]) {
                 offered.offerLetter = await uploadToCloudinary(req.files.offerLetter[0].path, [
@@ -638,16 +706,19 @@ const updateUniversityStatus = async (req, res) => {
                     uniName,
                     normalizeDocTag('offer-letter'),
                 ]);
+                if (!offered.offerLetter) {
+                    throw new Error('Failed to upload offer letter');
+                }
             }
         }
 
         await application.save();
 
         if (previousAdmitCard && previousAdmitCard !== offered.admitCard) {
-            deleteUploadedFile(previousAdmitCard);
+            await deleteUploadedFile(previousAdmitCard);
         }
         if (previousOfferLetter && previousOfferLetter !== offered.offerLetter) {
-            deleteUploadedFile(previousOfferLetter);
+            await deleteUploadedFile(previousOfferLetter);
         }
 
         const uni =
@@ -798,13 +869,16 @@ const downloadApplicationDocument = async (req, res) => {
         const filename = resolveDocFile(application, field, uniId);
         if (!filename) return res.status(404).json({ message: 'Document not found' });
 
-        const filePath = path.join(__dirname, '..', 'uploads', filename);
-        if (!fs.existsSync(filePath)) {
+        const safeDownloadName = normalizeDownloadName(downloadName);
+        const sent = await downloadStoredFile(
+            res,
+            filename,
+            safeDownloadName || ''
+        );
+        if (!sent) {
             return res.status(404).json({ message: 'File does not exist on server' });
         }
-
-        const safeDownloadName = path.basename(String(downloadName || '').trim());
-        return res.download(filePath, safeDownloadName || filename);
+        return null;
     } catch (error) {
         return res.status(500).json({ message: error.message });
     }
@@ -859,12 +933,16 @@ const downloadApplicationBundle = async (req, res) => {
         addDoc('applicant-cv', education?.international?.cv);
         addDoc('applicant-recommendation', education?.international?.recommendationLetter);
 
-        const existingDocs = docs
-            .map((doc) => ({
+        const existingDocs = [];
+        for (const doc of docs) {
+            const fileData = await readStoredFileBuffer(doc.file);
+            if (!fileData) continue;
+            existingDocs.push({
                 ...doc,
-                absPath: path.join(__dirname, '..', 'uploads', doc.file),
-            }))
-            .filter((doc) => fs.existsSync(doc.absPath));
+                buffer: fileData.buffer,
+                fileName: normalizeDownloadName(fileData.fileName) || 'document',
+            });
+        }
 
         if (existingDocs.length === 0) {
             return res.status(404).json({ message: 'No documents available for bundle' });
@@ -882,7 +960,11 @@ const downloadApplicationBundle = async (req, res) => {
         });
 
         archive.pipe(res);
-        existingDocs.forEach((doc) => archive.file(doc.absPath, { name: doc.name }));
+        existingDocs.forEach((doc) =>
+            archive.append(doc.buffer, {
+                name: `${doc.name}-${doc.fileName}`,
+            })
+        );
         await archive.finalize();
     } catch (error) {
         return res.status(500).json({ message: error.message });
@@ -907,7 +989,9 @@ const deleteApplication = async (req, res) => {
         ].filter(Boolean);
 
         await Application.findByIdAndDelete(req.params.id);
-        filesToDelete.forEach((file) => deleteUploadedFile(file));
+        for (const file of filesToDelete) {
+            await deleteUploadedFile(file);
+        }
 
         return res.json({ message: 'Application deleted successfully' });
     } catch (error) {

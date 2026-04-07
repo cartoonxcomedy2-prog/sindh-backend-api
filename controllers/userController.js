@@ -1,5 +1,5 @@
-const fs = require('fs');
 const path = require('path');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Application = require('../models/Application');
@@ -7,6 +7,7 @@ const University = require('../models/University');
 const Scholarship = require('../models/Scholarship');
 const {
     deleteUploadedFile,
+    downloadStoredFile,
     uploadToCloudinary,
 } = require('../utils/uploadFileUtils');
 
@@ -90,6 +91,42 @@ const REMINDER_CHECK_COOLDOWN_MS = 10 * 60 * 1000;
 const reminderLastCheckedAt = new Map();
 const NOTIFICATION_RETENTION_DAYS = 21;
 const NOTIFICATION_RETENTION_MS = NOTIFICATION_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+const DUMMY_PASSWORD_HASH =
+    '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36f7M1E4J4Yx3fRbN7b58w2';
+
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+
+const escapeRegex = (value) =>
+    String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const toPositiveInt = (value, fallback) => {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return parsed;
+};
+
+const flattenUploadedFiles = (filesInput) => {
+    if (Array.isArray(filesInput)) return filesInput;
+    if (filesInput && typeof filesInput === 'object') {
+        return Object.values(filesInput).flatMap((entry) =>
+            Array.isArray(entry) ? entry : []
+        );
+    }
+    return [];
+};
+
+const isValidEducationSectionField = (section, field) => {
+    const safeSection = String(section || '').trim();
+    const safeField = String(field || '').trim();
+    if (!safeSection || !safeField) return false;
+
+    if (safeSection === 'personalInfo' && safeField === 'fatherCnicFile') {
+        return true;
+    }
+
+    const allowed = EDUCATION_DOWNLOAD_FIELD_MAP[safeSection];
+    return Boolean(allowed && allowed.has(safeField));
+};
 
 const parseDeadlineDate = (rawDate) => {
     if (!rawDate) return null;
@@ -460,7 +497,10 @@ const assignEducationFiles = async (user, files = []) => {
 
     for (const file of files) {
         const pathParts = EDUCATION_FILE_FIELD_MAP[file.fieldname];
-        if (!pathParts) continue;
+        if (!pathParts) {
+            await deleteUploadedFile(file.path);
+            continue;
+        }
         const previousFile = getNested(education, pathParts);
         const fileLabel = EDUCATION_FILE_LABEL_MAP[file.fieldname] || file.fieldname;
         
@@ -469,6 +509,10 @@ const assignEducationFiles = async (user, files = []) => {
             'education',
             fileLabel,
         ]);
+        if (!renamed) {
+            await deleteUploadedFile(file.path);
+            throw new Error(`Failed to upload ${file.fieldname}`);
+        }
         
         setNested(education, pathParts, renamed);
         if (previousFile && previousFile !== renamed) {
@@ -482,13 +526,25 @@ const assignEducationFiles = async (user, files = []) => {
 // @desc    Auth user & get token
 // @route   POST /api/users/login
 const authUser = async (req, res) => {
-    const { email, password } = req.body;
+    const email = normalizeEmail(req.body.email);
+    const password = String(req.body.password || '');
 
     const user = await User.findOne({ email }).select('+password');
+    const isPasswordValid = user
+        ? await user.matchPassword(password)
+        : await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
 
-    if (user && (await user.matchPassword(password))) {
-        await ensureDeadlineRemindersForUser(user);
+    if (user && isPasswordValid) {
+        if (user.isActive === false) {
+            return res.status(403).json({
+                message: 'Your account is inactive. Please contact support.',
+            });
+        }
+
         const userResponse = await toResponseUser(user, true);
+        ensureDeadlineRemindersForUser(user).catch((error) => {
+            console.error('Reminder generation warning:', error.message);
+        });
         return res.json({
             ...userResponse,
             token: generateToken(user._id),
@@ -501,7 +557,8 @@ const authUser = async (req, res) => {
 // @desc    Register a new user
 // @route   POST /api/users
 const registerUser = async (req, res) => {
-    const userExists = await User.findOne({ email: req.body.email });
+    const email = normalizeEmail(req.body.email);
+    const userExists = await User.findOne({ email });
 
     if (userExists) {
         return res.status(400).json({ message: 'User already exists' });
@@ -517,7 +574,7 @@ const registerUser = async (req, res) => {
 
     const payload = {
         name: req.body.name,
-        email: req.body.email,
+        email,
         password: req.body.password,
         phone: normalizedPhone || undefined,
         country: DEFAULT_COUNTRY,
@@ -578,12 +635,20 @@ const updateUserProfile = async (req, res) => {
             avatar,
         } = req.body;
 
-        if (email && email !== user.email) {
-            const emailTaken = await User.findOne({ email, _id: { $ne: user._id } });
+        const normalizedEmail =
+            typeof email === 'string' && email.trim()
+                ? normalizeEmail(email)
+                : '';
+
+        if (normalizedEmail && normalizedEmail !== user.email) {
+            const emailTaken = await User.findOne({
+                email: normalizedEmail,
+                _id: { $ne: user._id },
+            });
             if (emailTaken) {
                 return res.status(400).json({ message: 'Email already in use' });
             }
-            user.email = email;
+            user.email = normalizedEmail;
         }
 
         const normalizedPhone = typeof phone === 'string' ? normalizePhone(phone) : null;
@@ -608,6 +673,9 @@ const updateUserProfile = async (req, res) => {
             if (avatar.startsWith('data:')) {
                 const oldAvatar = user.avatar;
                 user.avatar = await uploadToCloudinary(avatar, [user.name, 'avatar']);
+                if (!user.avatar) {
+                    throw new Error('Failed to upload avatar');
+                }
                 if (oldAvatar && user.avatar !== oldAvatar) {
                     await deleteUploadedFile(oldAvatar);
                 }
@@ -649,7 +717,7 @@ const updateUserProfile = async (req, res) => {
         }
         user.education.nationalId.country = DEFAULT_COUNTRY;
 
-        await assignEducationFiles(user, req.files || []);
+        await assignEducationFiles(user, flattenUploadedFiles(req.files));
         await removeReplacedEducationFiles(previousEducation, user.education || {});
 
         await user.save();
@@ -664,17 +732,52 @@ const updateUserProfile = async (req, res) => {
 // @desc    Get all users (admin panel)
 // @route   GET /api/users
 // @access  Private/Admin
-const getUsers = async (_req, res) => {
+const getUsers = async (req, res) => {
     try {
-        const users = await User.find({ role: 'user' }).sort({ createdAt: -1 });
+        const search = String(req.query.search || '').trim();
+        const shouldPaginate =
+            Boolean(req.query.page) || Boolean(req.query.limit) || search.length > 0;
+
+        const query = { role: 'user' };
+        if (search) {
+            const pattern = new RegExp(escapeRegex(search), 'i');
+            query.$or = [{ name: pattern }, { email: pattern }, { phone: pattern }];
+        }
+
+        if (!shouldPaginate) {
+            const users = await User.find(query).sort({ createdAt: -1 });
+            const payload = users.map((u) => {
+                const plain = u.toObject();
+                delete plain.password;
+                return plain;
+            });
+            return res.json({ data: payload });
+        }
+
+        const page = toPositiveInt(req.query.page, 1);
+        const limit = Math.min(toPositiveInt(req.query.limit, 20), 100);
+        const skip = (page - 1) * limit;
+
+        const [users, total] = await Promise.all([
+            User.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
+            User.countDocuments(query),
+        ]);
         const payload = users.map((u) => {
             const plain = u.toObject();
             delete plain.password;
             return plain;
         });
-        res.json({ data: payload });
+        return res.json({
+            data: payload,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+            },
+        });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        return res.status(500).json({ message: error.message });
     }
 };
 
@@ -718,12 +821,19 @@ const updateUserByAdmin = async (req, res) => {
             avatar,
         } = req.body;
 
-        if (email && email !== user.email) {
-            const emailTaken = await User.findOne({ email, _id: { $ne: user._id } });
+        const normalizedEmail =
+            typeof email === 'string' && email.trim()
+                ? normalizeEmail(email)
+                : '';
+        if (normalizedEmail && normalizedEmail !== user.email) {
+            const emailTaken = await User.findOne({
+                email: normalizedEmail,
+                _id: { $ne: user._id },
+            });
             if (emailTaken) {
                 return res.status(400).json({ message: 'Email already in use' });
             }
-            user.email = email;
+            user.email = normalizedEmail;
         }
 
         const normalizedPhone = typeof phone === 'string' ? normalizePhone(phone) : null;
@@ -748,6 +858,9 @@ const updateUserByAdmin = async (req, res) => {
             if (avatar.startsWith('data:')) {
                 const oldAvatar = user.avatar;
                 user.avatar = await uploadToCloudinary(avatar, [user.name, 'avatar']);
+                if (!user.avatar) {
+                    throw new Error('Failed to upload avatar');
+                }
                 if (oldAvatar && user.avatar !== oldAvatar) {
                     await deleteUploadedFile(oldAvatar);
                 }
@@ -807,12 +920,21 @@ const updateUserEducation = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const section = req.body.section;
-        const field = req.body.field;
-        const file = Array.isArray(req.files) && req.files.length > 0 ? req.files[0] : null;
+        const section = String(req.body.section || '').trim();
+        const field = String(req.body.field || '').trim();
+        const uploadedFiles = flattenUploadedFiles(req.files);
+        const file = uploadedFiles.length > 0 ? uploadedFiles[0] : null;
+
+        for (let i = 1; i < uploadedFiles.length; i += 1) {
+            await deleteUploadedFile(uploadedFiles[i].path);
+        }
 
         if (!section || !field || !file) {
             return res.status(400).json({ message: 'section, field and file are required' });
+        }
+        if (!isValidEducationSectionField(section, field)) {
+            await deleteUploadedFile(file.path);
+            return res.status(400).json({ message: 'Invalid education section/field' });
         }
 
         const education = user.education && typeof user.education === 'object' ? { ...user.education } : {};
@@ -826,6 +948,10 @@ const updateUserEducation = async (req, res) => {
             section,
             renameLabel,
         ]);
+        if (!renamed) {
+            await deleteUploadedFile(file.path);
+            throw new Error('Failed to upload education file');
+        }
         education[section][field] = renamed;
         user.education = education;
 
@@ -866,22 +992,32 @@ const downloadUserEducationFile = async (req, res) => {
             return res.status(404).json({ message: 'Document not found' });
         }
 
-        const safeName = path.basename(filename.trim());
-        const filePath = path.join(__dirname, '..', 'uploads', safeName);
-        if (!fs.existsSync(filePath)) {
-            return res.status(404).json({ message: 'File does not exist on server' });
-        }
-
         const requestedName = path.basename(
             String(req.query.downloadName || '').trim()
         );
-        const ext = path.extname(safeName) || '.pdf';
+        let fallbackSourceName = path.basename(filename.trim());
+        if (filename.includes('://')) {
+            try {
+                fallbackSourceName = path.basename(new URL(filename).pathname);
+            } catch (_error) {
+                fallbackSourceName = path.basename(filename.trim());
+            }
+        }
+        const ext = path.extname(fallbackSourceName) || '.pdf';
         const fallbackName = `${String(user.name || 'applicant')
             .trim()
             .replace(/\s+/g, '-')
             .toLowerCase()}-${section}-${field}${ext}`;
 
-        return res.download(filePath, requestedName || fallbackName);
+        const sent = await downloadStoredFile(
+            res,
+            filename,
+            requestedName || fallbackName
+        );
+        if (!sent) {
+            return res.status(404).json({ message: 'File does not exist on server' });
+        }
+        return null;
     } catch (error) {
         return res.status(500).json({ message: error.message });
     }
@@ -907,7 +1043,7 @@ const deleteUserEducationField = async (req, res) => {
             const previousFile = education[section][field];
             delete education[section][field];
             if (previousFile) {
-                deleteUploadedFile(previousFile);
+                await deleteUploadedFile(previousFile);
             }
         }
 

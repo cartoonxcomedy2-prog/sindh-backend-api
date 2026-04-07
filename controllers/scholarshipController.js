@@ -6,7 +6,12 @@ const { uploadToCloudinary, deleteUploadedFile } = require('../utils/uploadFileU
 const DEFAULT_COUNTRY = 'Pakistan';
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 
-const publicScholarshipQuery = {};
+const publicScholarshipQuery = {
+    $or: [
+        { isActive: true },
+        { isActive: { $exists: false } },
+    ],
+};
 
 const tryParseJSON = (value, fallback) => {
     if (typeof value !== 'string') return value ?? fallback;
@@ -223,6 +228,11 @@ const withHasAdmin = (records = []) =>
         hasAdmin: Boolean(record.adminAccount?.email),
     }));
 
+const normalizeEmail = (rawEmail) =>
+    String(rawEmail || '')
+        .trim()
+        .toLowerCase();
+
 // @desc    Fetch all scholarships (public)
 // @route   GET /api/scholarships
 // @access  Public
@@ -298,9 +308,15 @@ const createScholarship = async (req, res) => {
 
         if (payload.thumbnail && payload.thumbnail.startsWith('data:')) {
             payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.title, 'thumbnail']);
+            if (!payload.thumbnail) {
+                throw new Error('Failed to upload scholarship thumbnail');
+            }
         }
         if (payload.image && payload.image.startsWith('data:')) {
             payload.image = await uploadToCloudinary(payload.image, [payload.title, 'image']);
+            if (!payload.image) {
+                throw new Error('Failed to upload scholarship image');
+            }
         }
 
         const scholarship = new Scholarship(payload);
@@ -330,9 +346,15 @@ const updateScholarship = async (req, res) => {
 
         if (payload.thumbnail && payload.thumbnail.startsWith('data:')) {
             payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.title || scholarship.title, 'thumbnail']);
+            if (!payload.thumbnail) {
+                throw new Error('Failed to upload scholarship thumbnail');
+            }
         }
         if (payload.image && payload.image.startsWith('data:')) {
             payload.image = await uploadToCloudinary(payload.image, [payload.title || scholarship.title, 'image']);
+            if (!payload.image) {
+                throw new Error('Failed to upload scholarship image');
+            }
         }
 
         const previousThumbnail = scholarship.thumbnail || '';
@@ -407,7 +429,8 @@ const getScholarshipAccount = async (req, res) => {
 // @access  Private/Admin
 const upsertScholarshipAccount = async (req, res) => {
     try {
-        const { email, password, name } = req.body;
+        const { password, name } = req.body;
+        const email = normalizeEmail(req.body.email);
 
         if (!email) {
             return res.status(400).json({ message: 'Email is required' });

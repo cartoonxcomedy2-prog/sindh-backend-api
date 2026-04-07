@@ -9,6 +9,11 @@ const normalizeAccountType = (rawType) =>
         .trim()
         .toLowerCase();
 
+const normalizeEmail = (rawEmail) =>
+    String(rawEmail || '')
+        .trim()
+        .toLowerCase();
+
 const findAssociationByEmail = async (email) => {
     if (!email) return null;
 
@@ -48,7 +53,8 @@ const getAccounts = async (req, res) => {
 // @access  Private/Admin
 const createAccount = async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        const { name, password } = req.body;
+        const email = normalizeEmail(req.body.email);
         const type = normalizeAccountType(req.body.type);
 
         if (!name || !email || !password || !type) {
@@ -87,7 +93,8 @@ const createAccount = async (req, res) => {
 // @access  Private/Admin
 const updateAccount = async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        const { name, password } = req.body;
+        const email = normalizeEmail(req.body.email);
         const type = normalizeAccountType(req.body.type);
         const account = await User.findById(req.params.id).select('+password');
 

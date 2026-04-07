@@ -1,4 +1,5 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const router = express.Router();
 const {
     authUser,
@@ -18,8 +19,16 @@ const {
 const { protect, admin } = require('../middleware/authMiddleware');
 const { mixedUpload } = require('../middleware/uploadMiddleware');
 
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: 'Too many login attempts. Please try again later.',
+});
+
 router.post('/', registerUser);
-router.post('/login', authUser);
+router.post('/login', authLimiter, authUser);
 router.get('/', protect, admin, getUsers);
 router.get('/profile', protect, getUserProfile);
 router.put('/profile', protect, mixedUpload, updateUserProfile);

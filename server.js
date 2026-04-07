@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
+const mongoSanitize = require('express-mongo-sanitize');
 const connectDB = require('./config/db');
 
 // Load environment variables
@@ -20,7 +21,23 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
 // Middleware
-app.use(cors());
+const configuredOrigins = String(process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+app.use(
+    cors({
+        origin: (origin, callback) => {
+            if (!origin) return callback(null, true);
+            if (configuredOrigins.length === 0) return callback(null, true);
+            if (configuredOrigins.includes(origin)) return callback(null, true);
+            return callback(new Error('Not allowed by CORS'));
+        },
+        credentials: true,
+        optionsSuccessStatus: 204,
+    })
+);
 
 // --- Security Middleware ---
 // 1. Set security HTTP headers (fixes XSS and clickjacking vulnerabilities)
@@ -28,13 +45,16 @@ app.use(helmet());
 // 2. Rate limiting (prevents DDoS and brute-force login attacks)
 const limiter = rateLimit({
     windowMs: 10 * 60 * 1000,
-    max: 500,
-    message: 'Too many requests from this IP, please try again later.'
+    max: 300,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: 'Too many requests from this IP, please try again later.',
 });
 app.use('/api', limiter);
 // ---------------------------
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(mongoSanitize());
+app.use(express.json({ limit: '12mb' }));
+app.use(express.urlencoded({ limit: '12mb', extended: true }));
 app.use(morgan('dev'));
 
 // Prevent caching on all API responses - always serve fresh data

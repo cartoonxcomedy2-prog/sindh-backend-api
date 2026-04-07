@@ -63,6 +63,9 @@ const createBanner = async (req, res) => {
         
         if (imageUrl && imageUrl.startsWith('data:')) {
             imageUrl = await uploadToCloudinary(imageUrl, [title, 'banner']);
+            if (!imageUrl) {
+                throw new Error('Failed to upload banner image');
+            }
         }
 
         const banner = new Banner({ title, imageUrl });
@@ -87,6 +90,9 @@ const updateBanner = async (req, res) => {
 
         if (imageUrl && imageUrl.startsWith('data:')) {
             imageUrl = await uploadToCloudinary(imageUrl, [title || banner.title, 'banner']);
+            if (!imageUrl) {
+                throw new Error('Failed to upload banner image');
+            }
         }
 
         const previousImage = banner.imageUrl || '';

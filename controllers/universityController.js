@@ -158,6 +158,11 @@ const withHasAdmin = (records = []) =>
         hasAdmin: Boolean(record.adminAccount?.email),
     }));
 
+const normalizeEmail = (rawEmail) =>
+    String(rawEmail || '')
+        .trim()
+        .toLowerCase();
+
 // @desc    Fetch all universities (public)
 // @route   GET /api/universities
 // @access  Public
@@ -222,9 +227,15 @@ const createUniversity = async (req, res) => {
 
         if (payload.thumbnail && payload.thumbnail.startsWith('data:')) {
             payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.name, 'thumbnail']);
+            if (!payload.thumbnail) {
+                throw new Error('Failed to upload university thumbnail');
+            }
         }
         if (payload.logo && payload.logo.startsWith('data:')) {
             payload.logo = await uploadToCloudinary(payload.logo, [payload.name, 'logo']);
+            if (!payload.logo) {
+                throw new Error('Failed to upload university logo');
+            }
         }
 
         const university = new University(payload);
@@ -253,9 +264,15 @@ const updateUniversity = async (req, res) => {
         const payload = normalizeUniversityPayload(req.body);
         if (payload.thumbnail && payload.thumbnail.startsWith('data:')) {
             payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.name || university.name, 'thumbnail']);
+            if (!payload.thumbnail) {
+                throw new Error('Failed to upload university thumbnail');
+            }
         }
         if (payload.logo && payload.logo.startsWith('data:')) {
             payload.logo = await uploadToCloudinary(payload.logo, [payload.name || university.name, 'logo']);
+            if (!payload.logo) {
+                throw new Error('Failed to upload university logo');
+            }
         }
 
         const previousThumbnail = university.thumbnail || '';
@@ -330,7 +347,8 @@ const getUniversityAccount = async (req, res) => {
 // @access  Private/Admin
 const upsertUniversityAccount = async (req, res) => {
     try {
-        const { email, password, name } = req.body;
+        const { password, name } = req.body;
+        const email = normalizeEmail(req.body.email);
 
         if (!email) {
             return res.status(400).json({ message: 'Email is required' });

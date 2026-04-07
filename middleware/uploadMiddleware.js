@@ -26,12 +26,41 @@ const allowedMime = new Set([
     'image/jpg',
     'image/webp',
 ]);
+const allowedExt = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp']);
+
+const EDUCATION_UPLOAD_FIELDS = [
+    'idFile',
+    'matricTranscript',
+    'matricCertificate',
+    'interTranscript',
+    'interCertificate',
+    'bachTranscript',
+    'bachCertificate',
+    'masterTranscript',
+    'masterCertificate',
+    'passportPdf',
+    'testTranscript',
+    'cv',
+    'recommendationLetter',
+    'fatherCnicFile',
+    // Admin legacy dynamic field uploads:
+    'file',
+    'transcript',
+    'certificate',
+];
 
 const upload = multer({
     storage,
-    limits: { fileSize: 10 * 1024 * 1024 },
+    limits: {
+        fileSize: 10 * 1024 * 1024,
+        files: 20,
+    },
     fileFilter: (_req, file, cb) => {
-        if (!allowedMime.has(file.mimetype)) {
+        const ext = path.extname(file.originalname || '').toLowerCase();
+        const isMimeAllowed = allowedMime.has(file.mimetype);
+        const isExtAllowed = allowedExt.has(ext);
+
+        if (!isMimeAllowed || !isExtAllowed) {
             return cb(new Error('Only PDF and image files are allowed'));
         }
         cb(null, true);
@@ -43,11 +72,12 @@ const appDocUpload = upload.fields([
     { name: 'offerLetter', maxCount: 1 },
 ]);
 
-const mixedUpload = upload.any();
+const mixedUpload = upload.fields(
+    EDUCATION_UPLOAD_FIELDS.map((name) => ({ name, maxCount: 1 }))
+);
 
 module.exports = {
     upload,
     appDocUpload,
     mixedUpload,
 };
-
