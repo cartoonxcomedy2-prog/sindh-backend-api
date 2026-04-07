@@ -2,8 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
-const mongoSanitize = require('express-mongo-sanitize');
 const connectDB = require('./config/db');
+const sanitizeMiddleware = require('./middleware/sanitizeMiddleware');
 
 // Load environment variables
 dotenv.config();
@@ -52,7 +52,7 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 // ---------------------------
-app.use(mongoSanitize());
+app.use(sanitizeMiddleware);
 app.use(express.json({ limit: '12mb' }));
 app.use(express.urlencoded({ limit: '12mb', extended: true }));
 app.use(morgan('dev'));
