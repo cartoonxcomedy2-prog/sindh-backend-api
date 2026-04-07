@@ -47,6 +47,110 @@ const toPositiveInt = (value, fallback) => {
     return parsed;
 };
 
+const escapeRegex = (value) =>
+    String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const parseStartDate = (value) => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    date.setHours(0, 0, 0, 0);
+    return date;
+};
+
+const parseEndDate = (value) => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    date.setHours(23, 59, 59, 999);
+    return date;
+};
+
+const toPagination = (query = {}, options = {}) => {
+    const defaultPage = toPositiveInt(options.defaultPage, 1);
+    const defaultLimit = toPositiveInt(options.defaultLimit, 50);
+    const maxLimit = toPositiveInt(options.maxLimit, 200);
+
+    const page = toPositiveInt(query.page, defaultPage);
+    const requestedLimit = toPositiveInt(query.limit, defaultLimit);
+    const limit = Math.min(requestedLimit, maxLimit);
+
+    return {
+        page,
+        limit,
+        skip: (page - 1) * limit,
+    };
+};
+
+const normalizeApplicationTypeFilter = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return '';
+    if (normalized === 'university') return 'University';
+    if (normalized === 'scholarship') return 'Scholarship';
+    return '';
+};
+
+const buildApplicationListQuery = async (baseQuery = {}, requestQuery = {}) => {
+    const query = { ...baseQuery };
+    const status = String(requestQuery.status || '').trim();
+    const typeFilter = normalizeApplicationTypeFilter(
+        requestQuery.applicationType || requestQuery.type
+    );
+    const programFilter = String(
+        requestQuery.program || requestQuery.level || ''
+    ).trim();
+    const stateFilter = String(requestQuery.state || '').trim();
+    const cityFilter = String(requestQuery.city || '').trim();
+    const search = String(requestQuery.search || '').trim();
+    const startDate = parseStartDate(requestQuery.startDate);
+    const endDate = parseEndDate(requestQuery.endDate);
+
+    if (status && APPLICATION_STATUSES.includes(status)) {
+        query.status = status;
+    }
+    if (typeFilter) {
+        query.type = typeFilter;
+    }
+    if (programFilter) {
+        query['selectedPrograms.programName'] = new RegExp(
+            escapeRegex(programFilter),
+            'i'
+        );
+    }
+    if (startDate || endDate) {
+        query.appliedAt = {};
+        if (startDate) query.appliedAt.$gte = startDate;
+        if (endDate) query.appliedAt.$lte = endDate;
+    }
+
+    if (search || stateFilter || cityFilter) {
+        const userQuery = { role: 'user' };
+        if (search) {
+            const pattern = new RegExp(escapeRegex(search), 'i');
+            userQuery.$or = [
+                { name: pattern },
+                { email: pattern },
+                { phone: pattern },
+            ];
+        }
+        if (stateFilter) userQuery.state = stateFilter;
+        if (cityFilter) userQuery.city = cityFilter;
+
+        const userDocs = await User.find(userQuery)
+            .select('_id')
+            .limit(5000)
+            .lean();
+        const userIds = userDocs.map((item) => item._id);
+        if (userIds.length === 0) {
+            query.user = { $in: [] };
+            return query;
+        }
+        query.user = { $in: userIds };
+    }
+
+    return query;
+};
+
 const findUniversityForAdmin = async (userId) =>
     University.findOne({ 'adminAccount.userId': userId }).select('_id name thumbnail logo').lean();
 
@@ -531,21 +635,49 @@ const getApplicants = async (req, res) => {
         }
 
         if (req.user.role === 'university') {
+            if (type !== 'university') {
+                return res.status(403).json({ message: 'Unauthorized access to applicants' });
+            }
             const uni = await findUniversityForAdmin(req.user._id);
             if (!uni || (type === 'university' && String(uni._id) !== id)) {
                 return res.status(403).json({ message: 'Unauthorized access to applicants' });
             }
         } else if (req.user.role === 'scholarship') {
+            if (type !== 'scholarship') {
+                return res.status(403).json({ message: 'Unauthorized access to applicants' });
+            }
             const scholarship = await findScholarshipForAdmin(req.user._id);
             if (!scholarship || (type === 'scholarship' && String(scholarship._id) !== id)) {
                 return res.status(403).json({ message: 'Unauthorized access to applicants' });
             }
         }
 
-        const query = type === 'university' ? { university: id } : { scholarship: id };
-        const applicants = await populateApplicationQuery(Application.find(query).sort('-appliedAt')).lean();
+        const baseQuery = type === 'university' ? { university: id } : { scholarship: id };
+        const query = await buildApplicationListQuery(baseQuery, req.query);
+        const { page, limit, skip } = toPagination(req.query, {
+            defaultLimit: 50,
+            maxLimit: 200,
+        });
 
-        return res.json({ data: applicants });
+        const [applicants, total] = await Promise.all([
+            populateApplicationQuery(
+                Application.find(query)
+                    .sort('-appliedAt')
+                    .skip(skip)
+                    .limit(limit)
+            ).lean(),
+            Application.countDocuments(query),
+        ]);
+
+        return res.json({
+            data: applicants,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+            },
+        });
     } catch (error) {
         return res.status(500).json({ message: error.message });
     }
@@ -556,32 +688,23 @@ const getApplicants = async (req, res) => {
 // @access  Private
 const getAdminApplicationsList = async (req, res) => {
     try {
-        let query = {};
+        let baseQuery = {};
 
         if (req.user.role === 'university') {
             const uni = await findUniversityForAdmin(req.user._id);
             if (!uni) return res.json({ data: [] });
-            query = { university: uni._id };
+            baseQuery = { university: uni._id };
         } else if (req.user.role === 'scholarship') {
             const scholarship = await findScholarshipForAdmin(req.user._id);
             if (!scholarship) return res.json({ data: [] });
-            query = { scholarship: scholarship._id };
+            baseQuery = { scholarship: scholarship._id };
         }
 
-        const page = toPositiveInt(req.query.page, 1);
-        const limit = Math.min(toPositiveInt(req.query.limit, 20), 100);
-        const shouldPaginate = Boolean(req.query.page) || Boolean(req.query.limit);
-
-        if (!shouldPaginate) {
-            const apps = await populateAdminApplicationListQuery(
-                Application.find(query)
-                    .select(ADMIN_APPLICATION_LIST_SELECT)
-                    .sort('-appliedAt')
-            ).lean();
-            return res.json({ data: apps });
-        }
-
-        const skip = (page - 1) * limit;
+        const query = await buildApplicationListQuery(baseQuery, req.query);
+        const { page, limit, skip } = toPagination(req.query, {
+            defaultLimit: 20,
+            maxLimit: 100,
+        });
         const [apps, total] = await Promise.all([
             populateAdminApplicationListQuery(
                 Application.find(query)
@@ -627,11 +750,32 @@ const getAllApplicationsTotal = async (req, res) => {
 // @access  Private/User
 const getMyApplications = async (req, res) => {
     try {
-        const apps = await populateApplicationQuery(
-            Application.find({ user: req.user._id }).sort('-appliedAt')
-        ).lean();
+        const baseQuery = { user: req.user._id };
+        const query = await buildApplicationListQuery(baseQuery, req.query);
+        const { page, limit, skip } = toPagination(req.query, {
+            defaultLimit: 50,
+            maxLimit: 100,
+        });
 
-        return res.json({ data: apps });
+        const [apps, total] = await Promise.all([
+            populateApplicationQuery(
+                Application.find(query)
+                    .sort('-appliedAt')
+                    .skip(skip)
+                    .limit(limit)
+            ).lean(),
+            Application.countDocuments(query),
+        ]);
+
+        return res.json({
+            data: apps,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+            },
+        });
     } catch (error) {
         return res.status(500).json({ message: error.message });
     }
@@ -1202,7 +1346,6 @@ const downloadApplicationBundle = async (req, res) => {
             addDoc(file, [userLabel, spec.key]);
         });
 
-        const existingDocs = [];
         const usedArchiveNames = new Set();
         const ensureUniqueArchiveName = (rawName) => {
             const ext = path.extname(rawName);
@@ -1217,35 +1360,12 @@ const downloadApplicationBundle = async (req, res) => {
             return candidate;
         };
 
-        for (const doc of docs) {
-            const fileData = await readStoredFileBuffer(doc.file);
-            if (!fileData) continue;
-            const ext = extractFileExtension(fileData.fileName || doc.file, '.pdf');
-            const archiveName = ensureUniqueArchiveName(
-                composeDownloadFileName(doc.nameParts, ext)
-            );
-            existingDocs.push({
-                ...doc,
-                buffer: fileData.buffer,
-                archiveName,
-            });
-        }
-
         const summaryBuffer = await createApplicationSummaryPdfBuffer({
             application,
             user,
         });
-        if (summaryBuffer?.length) {
-            const summaryName = ensureUniqueArchiveName(
-                composeDownloadFileName([userLabel, 'application-summary'], '.pdf')
-            );
-            existingDocs.unshift({
-                buffer: summaryBuffer,
-                archiveName: summaryName,
-            });
-        }
-
-        if (existingDocs.length === 0) {
+        const hasSummary = Boolean(summaryBuffer?.length);
+        if (!hasSummary && docs.length === 0) {
             return res.status(404).json({ message: 'No documents available for bundle' });
         }
 
@@ -1277,11 +1397,24 @@ const downloadApplicationBundle = async (req, res) => {
         });
 
         archive.pipe(res);
-        existingDocs.forEach((doc) =>
-            archive.append(doc.buffer, {
-                name: doc.archiveName,
-            })
-        );
+
+        if (hasSummary) {
+            const summaryName = ensureUniqueArchiveName(
+                composeDownloadFileName([userLabel, 'application-summary'], '.pdf')
+            );
+            archive.append(summaryBuffer, { name: summaryName });
+        }
+
+        for (const doc of docs) {
+            const fileData = await readStoredFileBuffer(doc.file);
+            if (!fileData) continue;
+            const ext = extractFileExtension(fileData.fileName || doc.file, '.pdf');
+            const archiveName = ensureUniqueArchiveName(
+                composeDownloadFileName(doc.nameParts, ext)
+            );
+            archive.append(fileData.buffer, { name: archiveName });
+        }
+
         await archive.finalize();
     } catch (error) {
         return res.status(500).json({ message: error.message });

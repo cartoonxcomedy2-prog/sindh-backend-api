@@ -105,6 +105,11 @@ const toPositiveInt = (value, fallback) => {
     return parsed;
 };
 
+const MAX_PROFILE_APPLICATIONS = toPositiveInt(
+    process.env.USER_PROFILE_APPS_LIMIT,
+    200
+);
+
 const flattenUploadedFiles = (filesInput) => {
     if (Array.isArray(filesInput)) return filesInput;
     if (filesInput && typeof filesInput === 'object') {
@@ -439,12 +444,45 @@ const toResponseUser = async (userDoc, withApplications = false) => {
     );
 
     if (withApplications) {
-        filteredUser.applications = await Application.find({ user: user._id })
-            .populate('university')
-            .populate('scholarship')
-            .populate('offeredUniversities.university')
+        const docs = await Application.find({ user: user._id })
+            .select(
+                [
+                    'university',
+                    'scholarship',
+                    'type',
+                    'status',
+                    'selectedPrograms',
+                    'appliedAt',
+                    'admitCard',
+                    'offerLetter',
+                    'testDate',
+                    'interviewDate',
+                    'offeredUniversities',
+                    'updatedAt',
+                    'createdAt',
+                ].join(' ')
+            )
+            .populate(
+                'university',
+                'name thumbnail logo city state country address applicationSteps'
+            )
+            .populate(
+                'scholarship',
+                'title thumbnail image city state country address university_name applicationSteps'
+            )
+            .populate(
+                'offeredUniversities.university',
+                'name thumbnail logo city state country address'
+            )
             .sort('-appliedAt')
+            .limit(MAX_PROFILE_APPLICATIONS + 1)
             .lean();
+
+        filteredUser.applications = docs.slice(0, MAX_PROFILE_APPLICATIONS);
+        filteredUser.applicationsMeta = {
+            limit: MAX_PROFILE_APPLICATIONS,
+            hasMore: docs.length > MAX_PROFILE_APPLICATIONS,
+        };
     }
 
     return filteredUser;
@@ -541,7 +579,8 @@ const authUser = async (req, res) => {
             });
         }
 
-        const userResponse = await toResponseUser(user, true);
+        const includeApplications = user.role === 'user';
+        const userResponse = await toResponseUser(user, includeApplications);
         ensureDeadlineRemindersForUser(user).catch((error) => {
             console.error('Reminder generation warning:', error.message);
         });
@@ -602,7 +641,9 @@ const getUserProfile = async (req, res) => {
         return res.status(404).json({ message: 'User not found' });
     }
 
-    await ensureDeadlineRemindersForUser(user);
+    ensureDeadlineRemindersForUser(user).catch((error) => {
+        console.error('Reminder generation warning:', error.message);
+    });
     const userResponse = await toResponseUser(user, true);
     return res.json(userResponse);
 };

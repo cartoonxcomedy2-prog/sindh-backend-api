@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
+const compression = require('compression');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 const sanitizeMiddleware = require('./middleware/sanitizeMiddleware');
@@ -12,6 +13,9 @@ dotenv.config();
 connectDB();
 
 const app = express();
+const isProduction = process.env.NODE_ENV === 'production';
+const isStrictCors =
+    isProduction && String(process.env.CORS_STRICT || '').toLowerCase() === 'true';
 
 // Trust Render's proxy for accurate rate limiting
 app.set('trust proxy', 1);
@@ -30,8 +34,10 @@ app.use(
     cors({
         origin: (origin, callback) => {
             if (!origin) return callback(null, true);
-            if (configuredOrigins.length === 0) return callback(null, true);
             if (configuredOrigins.includes(origin)) return callback(null, true);
+            if (configuredOrigins.length === 0 && !isStrictCors) {
+                return callback(null, true);
+            }
             return callback(new Error('Not allowed by CORS'));
         },
         credentials: true,
@@ -42,6 +48,7 @@ app.use(
 // --- Security Middleware ---
 // 1. Set security HTTP headers (fixes XSS and clickjacking vulnerabilities)
 app.use(helmet());
+app.use(compression({ threshold: 1024 }));
 // 2. Rate limiting (prevents DDoS and brute-force login attacks)
 const limiter = rateLimit({
     windowMs: 10 * 60 * 1000,
@@ -54,23 +61,6 @@ app.use('/api', limiter);
 // ---------------------------
 app.use(express.json({ limit: '12mb' }));
 app.use(express.urlencoded({ limit: '12mb', extended: true }));
-app.use((req, _res, next) => {
-    // Express 5 exposes req.query as a getter-only property.
-    // Some middleware expects req.query to be mutable, so we create a writable snapshot.
-    try {
-        const parsedQuery = req.query;
-        Object.defineProperty(req, 'query', {
-            configurable: true,
-            enumerable: true,
-            writable: true,
-            value:
-                parsedQuery && typeof parsedQuery === 'object' ? parsedQuery : {},
-        });
-    } catch (_error) {
-        // Keep default Express behavior when query cannot be redefined.
-    }
-    next();
-});
 app.use(sanitizeMiddleware);
 app.use(morgan('dev'));
 
@@ -108,10 +98,14 @@ app.use('/uploads', express.static(path.join(__dirname, '/uploads')));
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-    const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+    const statusCode = res.statusCode >= 400 ? res.statusCode : 500;
+    const message =
+        statusCode >= 500 && isProduction
+            ? 'Internal server error'
+            : err.message || 'Request failed';
     res.status(statusCode).json({
-        message: err.message,
-        stack: process.env.NODE_ENV === 'production' ? null : err.stack,
+        message,
+        stack: isProduction ? null : err.stack,
     });
 });
 

@@ -62,6 +62,8 @@ applicationSchema.index({ user: 1, appliedAt: -1 });
 applicationSchema.index({ university: 1, appliedAt: -1 });
 applicationSchema.index({ scholarship: 1, appliedAt: -1 });
 applicationSchema.index({ status: 1, appliedAt: -1 });
+applicationSchema.index({ type: 1, appliedAt: -1 });
+applicationSchema.index({ user: 1, status: 1, appliedAt: -1 });
 applicationSchema.index({ 'offeredUniversities.university': 1, appliedAt: -1 });
 applicationSchema.index(
     { user: 1, university: 1 },
