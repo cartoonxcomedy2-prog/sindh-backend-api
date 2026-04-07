@@ -579,7 +579,7 @@ const authUser = async (req, res) => {
             });
         }
 
-        const includeApplications = user.role === 'user';
+        const includeApplications = false;
         const userResponse = await toResponseUser(user, includeApplications);
         ensureDeadlineRemindersForUser(user).catch((error) => {
             console.error('Reminder generation warning:', error.message);
