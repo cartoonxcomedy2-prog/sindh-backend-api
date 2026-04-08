@@ -6,18 +6,16 @@ const path = require('path');
 
 const uploadsDir = path.resolve(path.join(__dirname, '..', 'uploads'));
 const documentExtRegex = /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv)$/i;
+const remoteUrlRegex = /https?:\/\/[^\s"'<>]+/i;
+const redirectStatusCodes = new Set([301, 302, 303, 307, 308]);
+const maxRemoteRedirects = 5;
 
 const extractEmbeddedRemoteUrl = (value) => {
     const raw = String(value || '').trim();
     if (!raw) return '';
-    const httpIdx = raw.indexOf('http://');
-    const httpsIdx = raw.indexOf('https://');
-    const startIdx =
-        httpIdx !== -1 && (httpsIdx === -1 || httpIdx < httpsIdx)
-            ? httpIdx
-            : httpsIdx;
-    if (startIdx === -1) return '';
-    return raw.slice(startIdx).trim();
+    const matched = raw.match(remoteUrlRegex);
+    if (!matched?.[0]) return '';
+    return matched[0].replace(/[\],);.]+$/g, '');
 };
 
 const sanitizePart = (value) =>
@@ -145,20 +143,41 @@ const buildCloudinarySignedDeliveryCandidates = (value) => {
     return candidates;
 };
 
-const fetchRemoteBuffer = async (remoteUrl) => {
+const fetchRemoteBuffer = async (remoteUrl, redirectCount = 0) => {
     if (!remoteUrl) return null;
+    if (redirectCount > maxRemoteRedirects) return null;
     if (typeof fetch === 'function') {
-        const response = await fetch(remoteUrl);
-        if (!response.ok) return null;
-        const data = await response.arrayBuffer();
-        return Buffer.from(data);
+        try {
+            const response = await fetch(remoteUrl, { redirect: 'follow' });
+            if (!response.ok) return null;
+            const data = await response.arrayBuffer();
+            return Buffer.from(data);
+        } catch (_error) {
+            return null;
+        }
     }
 
     return await new Promise((resolve, reject) => {
         const client = remoteUrl.startsWith('https://') ? https : http;
         client
             .get(remoteUrl, (response) => {
-                if (response.statusCode < 200 || response.statusCode >= 300) {
+                const statusCode = Number(response.statusCode || 0);
+                if (redirectStatusCodes.has(statusCode)) {
+                    const location = String(response.headers.location || '').trim();
+                    response.resume();
+                    if (!location) {
+                        return resolve(null);
+                    }
+                    try {
+                        const nextUrl = new URL(location, remoteUrl).toString();
+                        return resolve(
+                            fetchRemoteBuffer(nextUrl, redirectCount + 1)
+                        );
+                    } catch (_error) {
+                        return resolve(null);
+                    }
+                }
+                if (statusCode < 200 || statusCode >= 300) {
                     response.resume();
                     return resolve(null);
                 }

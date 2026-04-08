@@ -484,15 +484,15 @@ const toResponseUser = async (userDoc, withApplications = false) => {
             )
             .populate(
                 'university',
-                'name thumbnail logo city state country address applicationSteps'
+                'name thumbnail logo city state country address applicationSteps testDate interviewDate programs'
             )
             .populate(
                 'scholarship',
-                'title thumbnail image city state country address university_name applicationSteps'
+                'title thumbnail image city state country address university_name applicationSteps testDate interviewDate programs'
             )
             .populate(
                 'offeredUniversities.university',
-                'name thumbnail logo city state country address'
+                'name thumbnail logo city state country address applicationSteps testDate interviewDate programs'
             )
             .sort('-appliedAt')
             .limit(MAX_PROFILE_APPLICATIONS + 1)
