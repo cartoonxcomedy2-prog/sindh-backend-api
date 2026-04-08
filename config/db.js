@@ -23,9 +23,9 @@ let reconnectAttempt = 0;
 let reconnectTimer = null;
 
 const mongoConnectOptions = () => ({
-    maxPoolSize: toPositiveInt(process.env.MONGO_MAX_POOL_SIZE, 20),
-    minPoolSize: toPositiveInt(process.env.MONGO_MIN_POOL_SIZE, 1),
-    maxIdleTimeMS: toPositiveInt(process.env.MONGO_MAX_IDLE_MS, 30000),
+    maxPoolSize: toPositiveInt(process.env.MONGO_MAX_POOL_SIZE, 60),
+    minPoolSize: toPositiveInt(process.env.MONGO_MIN_POOL_SIZE, 5),
+    maxIdleTimeMS: toPositiveInt(process.env.MONGO_MAX_IDLE_MS, 60000),
     serverSelectionTimeoutMS: toPositiveInt(
         process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS,
         10000
