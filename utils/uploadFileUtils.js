@@ -120,6 +120,31 @@ const buildCloudinaryPrivateDownloadCandidates = (value) => {
     return candidates;
 };
 
+const buildCloudinarySignedDeliveryCandidates = (value) => {
+    const extracted = extractCloudinaryPublicIdAndFormat(value);
+    if (!extracted || !extracted.publicId || !extracted.format) return [];
+
+    const candidates = [];
+    const resourceTypes = ['image', 'raw'];
+    const deliveryTypes = ['upload', 'private', 'authenticated'];
+
+    for (const resourceType of resourceTypes) {
+        for (const type of deliveryTypes) {
+            try {
+                const signed = cloudinary.url(extracted.publicId, {
+                    secure: true,
+                    sign_url: true,
+                    resource_type: resourceType,
+                    type,
+                    format: extracted.format,
+                });
+                if (signed) candidates.push(signed);
+            } catch (_error) {}
+        }
+    }
+    return candidates;
+};
+
 const fetchRemoteBuffer = async (remoteUrl) => {
     if (!remoteUrl) return null;
     if (typeof fetch === 'function') {
@@ -240,6 +265,13 @@ const readStoredFileBuffer = async (filenameOrUrl) => {
                 candidates.push(rawCandidate);
             }
             for (const candidate of buildCloudinaryPrivateDownloadCandidates(
+                embeddedUrl
+            )) {
+                if (!candidates.includes(candidate)) {
+                    candidates.push(candidate);
+                }
+            }
+            for (const candidate of buildCloudinarySignedDeliveryCandidates(
                 embeddedUrl
             )) {
                 if (!candidates.includes(candidate)) {
