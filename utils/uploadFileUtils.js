@@ -5,6 +5,20 @@ const https = require('https');
 const path = require('path');
 
 const uploadsDir = path.resolve(path.join(__dirname, '..', 'uploads'));
+const documentExtRegex = /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv)$/i;
+
+const extractEmbeddedRemoteUrl = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const httpIdx = raw.indexOf('http://');
+    const httpsIdx = raw.indexOf('https://');
+    const startIdx =
+        httpIdx !== -1 && (httpsIdx === -1 || httpIdx < httpsIdx)
+            ? httpIdx
+            : httpsIdx;
+    if (startIdx === -1) return '';
+    return raw.slice(startIdx).trim();
+};
 
 const sanitizePart = (value) =>
     String(value || '')
@@ -14,7 +28,7 @@ const sanitizePart = (value) =>
         .slice(0, 40);
 
 const isRemoteUrl = (value) =>
-    typeof value === 'string' && /^https?:\/\//i.test(value.trim());
+    /^https?:\/\//i.test(extractEmbeddedRemoteUrl(value));
 
 const normalizeDownloadName = (value) => {
     const safe = path.basename(String(value || '').trim());
@@ -40,6 +54,98 @@ const resolveLocalUploadPath = (storedValue) => {
     return target;
 };
 
+const inferCloudinaryResourceType = (fileSource) => {
+    const raw = String(fileSource || '').trim().toLowerCase();
+    if (!raw) return 'auto';
+    if (raw.startsWith('data:application/pdf')) return 'raw';
+    if (raw.startsWith('data:image/')) return 'image';
+
+    const ext = path.extname(raw.split('?')[0] || '');
+    if (ext === '.pdf') return 'raw';
+    return 'auto';
+};
+
+const toCloudinaryRawDeliveryUrl = (value) => {
+    const source = extractEmbeddedRemoteUrl(value);
+    if (!source) return '';
+    try {
+        const parsed = new URL(source);
+        if (!/cloudinary\.com$/i.test(parsed.hostname)) return '';
+        if (!documentExtRegex.test(parsed.pathname || '')) return '';
+        if (!parsed.pathname.includes('/image/upload/')) return '';
+        return source.replace('/image/upload/', '/raw/upload/');
+    } catch (_error) {
+        return '';
+    }
+};
+
+const extractCloudinaryPublicIdAndFormat = (value) => {
+    const source = extractEmbeddedRemoteUrl(value);
+    if (!source) return null;
+    try {
+        const decoded = decodeURIComponent(source);
+        const match = decoded.match(
+            /\/upload\/(?:v\d+\/)?(.+)\.([a-z0-9]+)(?:\?.*)?$/i
+        );
+        if (!match) return null;
+        return {
+            publicId: match[1],
+            format: String(match[2] || '').toLowerCase(),
+        };
+    } catch (_error) {
+        return null;
+    }
+};
+
+const buildCloudinaryPrivateDownloadCandidates = (value) => {
+    const extracted = extractCloudinaryPublicIdAndFormat(value);
+    if (!extracted || !extracted.publicId || !extracted.format) return [];
+
+    const candidates = [];
+    const resourceTypes = ['image', 'raw'];
+    for (const resourceType of resourceTypes) {
+        try {
+            const signed = cloudinary.utils.private_download_url(
+                extracted.publicId,
+                extracted.format,
+                {
+                    resource_type: resourceType,
+                    type: 'upload',
+                    attachment: false,
+                }
+            );
+            if (signed) candidates.push(signed);
+        } catch (_error) {}
+    }
+    return candidates;
+};
+
+const fetchRemoteBuffer = async (remoteUrl) => {
+    if (!remoteUrl) return null;
+    if (typeof fetch === 'function') {
+        const response = await fetch(remoteUrl);
+        if (!response.ok) return null;
+        const data = await response.arrayBuffer();
+        return Buffer.from(data);
+    }
+
+    return await new Promise((resolve, reject) => {
+        const client = remoteUrl.startsWith('https://') ? https : http;
+        client
+            .get(remoteUrl, (response) => {
+                if (response.statusCode < 200 || response.statusCode >= 300) {
+                    response.resume();
+                    return resolve(null);
+                }
+                const chunks = [];
+                response.on('data', (chunk) => chunks.push(chunk));
+                response.on('end', () => resolve(Buffer.concat(chunks)));
+                response.on('error', reject);
+            })
+            .on('error', reject);
+    });
+};
+
 const uploadToCloudinary = async (fileSource, parts = []) => {
     if (!fileSource) return '';
 
@@ -48,12 +154,13 @@ const uploadToCloudinary = async (fileSource, parts = []) => {
         .filter(Boolean);
 
     const publicId = `${Date.now()}-${nameParts.join('-')}`;
+    const resourceType = inferCloudinaryResourceType(fileSource);
 
     try {
         const result = await cloudinary.uploader.upload(fileSource, {
             folder: 'sindh_uploads',
             public_id: publicId,
-            resource_type: 'auto',
+            resource_type: resourceType,
         });
 
         // Clean up local temp file if it's a path.
@@ -124,41 +231,34 @@ const deleteUploadedFile = async (filenameOrUrl) => {
 const readStoredFileBuffer = async (filenameOrUrl) => {
     if (!filenameOrUrl) return null;
 
-    if (isRemoteUrl(filenameOrUrl)) {
+    const embeddedUrl = extractEmbeddedRemoteUrl(filenameOrUrl);
+    if (embeddedUrl && isRemoteUrl(embeddedUrl)) {
         try {
-            let buffer = null;
-            if (typeof fetch === 'function') {
-                const response = await fetch(filenameOrUrl);
-                if (!response.ok) return null;
-                const data = await response.arrayBuffer();
-                buffer = Buffer.from(data);
-            } else {
-                buffer = await new Promise((resolve, reject) => {
-                    const client = filenameOrUrl.startsWith('https://')
-                        ? https
-                        : http;
-                    client
-                        .get(filenameOrUrl, (response) => {
-                            if (response.statusCode < 200 || response.statusCode >= 300) {
-                                response.resume();
-                                return reject(new Error('Remote file request failed'));
-                            }
-                            const chunks = [];
-                            response.on('data', (chunk) => chunks.push(chunk));
-                            response.on('end', () => resolve(Buffer.concat(chunks)));
-                            response.on('error', reject);
-                        })
-                        .on('error', reject);
-                });
+            const candidates = [embeddedUrl];
+            const rawCandidate = toCloudinaryRawDeliveryUrl(embeddedUrl);
+            if (rawCandidate && rawCandidate !== embeddedUrl) {
+                candidates.push(rawCandidate);
+            }
+            for (const candidate of buildCloudinaryPrivateDownloadCandidates(
+                embeddedUrl
+            )) {
+                if (!candidates.includes(candidate)) {
+                    candidates.push(candidate);
+                }
             }
 
-            const url = new URL(filenameOrUrl);
-            const rawName = path.basename(url.pathname || '') || 'document';
+            for (const candidateUrl of candidates) {
+                const buffer = await fetchRemoteBuffer(candidateUrl);
+                if (!buffer) continue;
 
-            return {
-                buffer,
-                fileName: normalizeDownloadName(rawName) || 'document',
-            };
+                const parsed = new URL(candidateUrl);
+                const rawName = path.basename(parsed.pathname || '') || 'document';
+                return {
+                    buffer,
+                    fileName: normalizeDownloadName(rawName) || 'document',
+                };
+            }
+            return null;
         } catch (_error) {
             return null;
         }

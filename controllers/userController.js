@@ -357,10 +357,20 @@ const ensureDeadlineRemindersForUser = async (userInput, options = {}) => {
     return userInput;
 };
 
-const generateToken = (id) =>
-    jwt.sign({ id }, process.env.JWT_SECRET, {
+const generateToken = (userOrId) => {
+    const id =
+        userOrId && typeof userOrId === 'object'
+            ? String(userOrId._id || '')
+            : String(userOrId || '');
+    const sessionVersion =
+        userOrId && typeof userOrId === 'object'
+            ? Number(userOrId.sessionVersion || 0)
+            : 0;
+
+    return jwt.sign({ id, sv: sessionVersion }, process.env.JWT_SECRET, {
         expiresIn: process.env.JWT_EXPIRES_IN || '3d',
     });
+};
 
 const parsePossibleJSON = (value, fallback = null) => {
     if (value == null) return fallback;
@@ -589,6 +599,9 @@ const authUser = async (req, res) => {
             });
         }
 
+        user.sessionVersion = Number(user.sessionVersion || 0) + 1;
+        await user.save({ validateBeforeSave: false });
+
         const includeApplications = false;
         const userResponse = await toResponseUser(user, includeApplications);
         ensureDeadlineRemindersForUser(user).catch((error) => {
@@ -596,7 +609,7 @@ const authUser = async (req, res) => {
         });
         return res.json({
             ...userResponse,
-            token: generateToken(user._id),
+            token: generateToken(user),
         });
     }
 
@@ -639,7 +652,7 @@ const registerUser = async (req, res) => {
     const userResponse = await toResponseUser(user, true);
     return res.status(201).json({
         ...userResponse,
-        token: generateToken(user._id),
+        token: generateToken(user),
     });
 };
 

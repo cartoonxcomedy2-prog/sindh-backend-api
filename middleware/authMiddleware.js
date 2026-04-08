@@ -12,6 +12,14 @@ const protect = async (req, res, next) => {
             if (!req.user) {
                 return res.status(401).json({ message: 'Not authorized, user does not exist' });
             }
+            if (req.user.isActive === false) {
+                return res.status(401).json({ message: 'Not authorized, account inactive' });
+            }
+            const tokenSessionVersion = Number(decoded?.sv);
+            const currentSessionVersion = Number(req.user.sessionVersion || 0);
+            if (!Number.isFinite(tokenSessionVersion) || tokenSessionVersion !== currentSessionVersion) {
+                return res.status(401).json({ message: 'Session expired, please login again' });
+            }
             next();
             return;
         } catch (error) {
