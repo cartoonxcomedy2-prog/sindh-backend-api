@@ -239,9 +239,6 @@ const createResponseCache = (options = {}) => {
             const cacheControlHeader = String(
                 res.getHeader('Cache-Control') || ''
             ).trim();
-            if (cacheControlHeader.toLowerCase().includes('no-store')) {
-                return;
-            }
 
             const tags = normalizeTags(options.tags, req, res);
             const headers = {};
