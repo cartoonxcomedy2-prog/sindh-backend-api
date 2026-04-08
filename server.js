@@ -12,6 +12,16 @@ dotenv.config();
 // Connect to MongoDB
 connectDB();
 
+process.on('uncaughtException', (err) => {
+    console.error('UNCAUGHT EXCEPTION! 💥', err.name, err.message, err.stack);
+    // Don't exit process to prevent 521 for debugging
+});
+
+process.on('unhandledRejection', (err) => {
+    console.error('UNHANDLED REJECTION! 💥', err.name, err.message, err.stack);
+    // Don't exit process to prevent 521 for debugging
+});
+
 const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
 const isStrictCors =
