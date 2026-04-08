@@ -1276,6 +1276,10 @@ const buildApplicationDocFallbackName = async ({
     const user = await User.findById(application.user).select('name').lean();
     const docLabel = APPLICATION_DOC_LABEL_MAP[field] || sanitizeFilePart(field, 'document');
     const userLabel = sanitizeFilePart(user?.name || 'applicant', 'applicant');
+    const applicationLabel = sanitizeFilePart(
+        toObjectIdString(application?._id),
+        'application'
+    );
 
     let universityLabel = '';
     if (uniId) {
@@ -1289,7 +1293,7 @@ const buildApplicationDocFallbackName = async ({
 
     const extension = extractFileExtension(sourceFile, '.pdf');
     return composeDownloadFileName(
-        [userLabel, universityLabel, docLabel].filter(Boolean),
+        [userLabel, applicationLabel, universityLabel, docLabel].filter(Boolean),
         extension
     );
 };
@@ -1300,7 +1304,9 @@ const buildApplicationDocFallbackName = async ({
 const downloadApplicationDocument = async (req, res) => {
     try {
         const { id, field } = req.params;
-        const { uniId, downloadName } = req.query;
+        const { downloadName } = req.query;
+        const requestedUniId =
+            req.query.uniId || req.query.universityId || '';
 
         if (!['admitCard', 'offerLetter'].includes(field)) {
             return res.status(400).json({ message: 'Invalid document field' });
@@ -1312,14 +1318,18 @@ const downloadApplicationDocument = async (req, res) => {
         const allowed = await assertInstitutionAccess(application, req.user);
         if (!allowed) return res.status(403).json({ message: 'Unauthorized' });
 
-        const { file: filename, offered } = resolveDocFile(application, field, uniId);
+        const { file: filename, offered } = resolveDocFile(
+            application,
+            field,
+            requestedUniId
+        );
         if (!filename) return res.status(404).json({ message: 'Document not found' });
 
         const safeDownloadName = normalizeDownloadName(downloadName);
         const fallbackName = await buildApplicationDocFallbackName({
             application,
             field,
-            uniId,
+            uniId: requestedUniId,
             offeredEntry: offered,
             sourceFile: filename,
         });
