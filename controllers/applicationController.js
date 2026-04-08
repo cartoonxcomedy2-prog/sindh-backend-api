@@ -9,7 +9,7 @@ const {
     deleteUploadedFile,
     downloadStoredFile,
     normalizeDownloadName,
-    readStoredFileBuffer,
+    openStoredFileStream,
     uploadToCloudinary,
 } = require('../utils/uploadFileUtils');
 const { enqueueJob } = require('../utils/jobQueue');
@@ -1502,13 +1502,13 @@ const downloadApplicationBundle = async (req, res) => {
         }
 
         for (const doc of docs) {
-            const fileData = await readStoredFileBuffer(doc.file);
-            if (!fileData) continue;
+            const fileData = await openStoredFileStream(doc.file);
+            if (!fileData?.stream) continue;
             const ext = extractFileExtension(fileData.fileName || doc.file, '.pdf');
             const archiveName = ensureUniqueArchiveName(
                 composeDownloadFileName(doc.nameParts, ext)
             );
-            archive.append(fileData.buffer, { name: archiveName });
+            archive.append(fileData.stream, { name: archiveName });
         }
 
         await archive.finalize();

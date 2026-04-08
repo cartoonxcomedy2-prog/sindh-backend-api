@@ -6,6 +6,8 @@ const dotenv = require('dotenv');
 const path = require('path');
 const connectDB = require('./config/db');
 const sanitizeMiddleware = require('./middleware/sanitizeMiddleware');
+const { getResponseCacheStats } = require('./middleware/responseCache');
+const { getQueueStats } = require('./utils/jobQueue');
 
 // Load environment variables
 dotenv.config();
@@ -23,6 +25,9 @@ const MONGO_STATES = Object.freeze({
     2: 'connecting',
     3: 'disconnecting',
 });
+
+const toMegabytes = (bytes) =>
+    Number((Number(bytes || 0) / (1024 * 1024)).toFixed(2));
 
 process.on('uncaughtException', (err) => {
     console.error('UNCAUGHT EXCEPTION!', err?.name, err?.message, err?.stack);
@@ -82,12 +87,25 @@ app.get('/', (req, res) => {
 // Always return 200 to avoid restart loops from transient DB outages.
 app.get('/healthz', (req, res) => {
     const dbReadyState = getMongoConnectionState();
+    const memory = process.memoryUsage();
     res.status(200).json({
         status: 'ok',
         uptimeSeconds: Math.floor(process.uptime()),
         db: {
             readyState: dbReadyState,
             state: MONGO_STATES[dbReadyState] || 'unknown',
+        },
+        runtime: {
+            pid: process.pid,
+            node: process.version,
+            memoryMb: {
+                rss: toMegabytes(memory.rss),
+                heapTotal: toMegabytes(memory.heapTotal),
+                heapUsed: toMegabytes(memory.heapUsed),
+                external: toMegabytes(memory.external),
+            },
+            cache: getResponseCacheStats(),
+            queue: getQueueStats(),
         },
         timestamp: new Date().toISOString(),
     });
