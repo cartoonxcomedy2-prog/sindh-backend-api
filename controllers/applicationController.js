@@ -1266,6 +1266,40 @@ const resolveDocFile = (application, field, uniId) => {
     };
 };
 
+const buildDownloadDocCandidates = (application, field, requestedUniId) => {
+    const normalizedUniId = toObjectIdString(requestedUniId);
+    const candidates = [];
+    const seen = new Set();
+
+    const addCandidate = ({ file, uniId = '', offeredEntry = null }) => {
+        const normalizedFile = String(file || '').trim();
+        if (!normalizedFile || seen.has(normalizedFile)) return;
+        seen.add(normalizedFile);
+        candidates.push({
+            file: normalizedFile,
+            uniId: toObjectIdString(uniId),
+            offeredEntry,
+        });
+    };
+
+    if (normalizedUniId) {
+        const { file, offered } = resolveDocFile(application, field, normalizedUniId);
+        addCandidate({
+            file,
+            uniId: normalizedUniId,
+            offeredEntry: offered || null,
+        });
+    }
+
+    addCandidate({
+        file: application?.[field] || '',
+        uniId: '',
+        offeredEntry: null,
+    });
+
+    return candidates;
+};
+
 const buildApplicationDocFallbackName = async ({
     application,
     field,
@@ -1318,30 +1352,32 @@ const downloadApplicationDocument = async (req, res) => {
         const allowed = await assertInstitutionAccess(application, req.user);
         if (!allowed) return res.status(403).json({ message: 'Unauthorized' });
 
-        const { file: filename, offered } = resolveDocFile(
+        const candidates = buildDownloadDocCandidates(
             application,
             field,
             requestedUniId
         );
-        if (!filename) return res.status(404).json({ message: 'Document not found' });
+        if (!candidates.length) {
+            return res.status(404).json({ message: 'Document not found' });
+        }
 
         const safeDownloadName = normalizeDownloadName(downloadName);
-        const fallbackName = await buildApplicationDocFallbackName({
-            application,
-            field,
-            uniId: requestedUniId,
-            offeredEntry: offered,
-            sourceFile: filename,
-        });
-        const sent = await downloadStoredFile(
-            res,
-            filename,
-            safeDownloadName || fallbackName
-        );
-        if (!sent) {
-            return res.status(404).json({ message: 'File does not exist on server' });
+        for (const candidate of candidates) {
+            const fallbackName = await buildApplicationDocFallbackName({
+                application,
+                field,
+                uniId: candidate.uniId,
+                offeredEntry: candidate.offeredEntry,
+                sourceFile: candidate.file,
+            });
+            const sent = await downloadStoredFile(
+                res,
+                candidate.file,
+                safeDownloadName || fallbackName
+            );
+            if (sent) return null;
         }
-        return null;
+        return res.status(404).json({ message: 'File does not exist on server' });
     } catch (error) {
         return res.status(500).json({ message: error.message });
     }
