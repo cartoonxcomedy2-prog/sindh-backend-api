@@ -27,8 +27,8 @@ const isProduction = process.env.NODE_ENV === 'production';
 const isStrictCors =
     isProduction && String(process.env.CORS_STRICT || '').toLowerCase() === 'true';
 
-// Trust Render's proxy for accurate rate limiting
-app.set('trust proxy', true);
+// Trust Render's proxy (1 for single hop)
+app.set('trust proxy', 1);
 
 // Security imports
 const helmet = require('helmet');
@@ -52,15 +52,8 @@ app.use(
 // 1. (Temporarily disabled helmet for debugging)
 // app.use(helmet());
 app.use(compression({ threshold: 1024 }));
-// 2. Rate limiting (increased for debugging)
-const limiter = rateLimit({
-    windowMs: 10 * 60 * 1000,
-    max: 5000,
-    standardHeaders: 'draft-8',
-    legacyHeaders: false,
-    message: 'Too many requests from this IP, please try again later.',
-});
-app.use('/api', limiter);
+// 2. Rate limiting (DISABLED FOR CONNECTIVITY DEBUGGING)
+// app.use('/api', limiter);
 // ---------------------------
 app.use(express.json({ limit: '12mb' }));
 app.use(express.urlencoded({ limit: '12mb', extended: true }));
@@ -114,6 +107,7 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-    console.log(`🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+const HOST = '0.0.0.0'; // Explicitly bind to all IPv4 addresses
+app.listen(PORT, HOST, () => {
+    console.log(`🚀 Server running in ${process.env.NODE_ENV} mode on ${HOST}:${PORT}`);
 });
