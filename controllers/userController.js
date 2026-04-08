@@ -368,7 +368,7 @@ const generateToken = (userOrId) => {
             : 0;
 
     return jwt.sign({ id, sv: sessionVersion }, process.env.JWT_SECRET, {
-        expiresIn: process.env.JWT_EXPIRES_IN || '3d',
+        expiresIn: process.env.JWT_EXPIRES_IN || '30d',
     });
 };
 
@@ -599,8 +599,11 @@ const authUser = async (req, res) => {
             });
         }
 
-        user.sessionVersion = Number(user.sessionVersion || 0) + 1;
-        await user.save({ validateBeforeSave: false });
+        // NOTE: We no longer increment sessionVersion on login.
+        // Incrementing it invalidated existing tokens on other devices,
+        // causing users to get logged out whenever they re-opened the app.
+        // sessionVersion is only changed when the user explicitly resets
+        // their password or an admin forces a session invalidation.
 
         const includeApplications = false;
         const userResponse = await toResponseUser(user, includeApplications);
