@@ -14,9 +14,6 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
-  "engines": {
-    "node": ">=20.19.0"
-  },
   "dependencies": {
     "archiver": "^7.0.1",
     "bcryptjs": "^3.0.3",
