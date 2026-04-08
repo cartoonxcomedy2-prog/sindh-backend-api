@@ -28,7 +28,7 @@ const isStrictCors =
     isProduction && String(process.env.CORS_STRICT || '').toLowerCase() === 'true';
 
 // Trust Render's proxy for accurate rate limiting
-app.set('trust proxy', 1);
+app.set('trust proxy', true);
 
 // Security imports
 const helmet = require('helmet');
@@ -42,27 +42,20 @@ const configuredOrigins = String(process.env.CORS_ORIGINS || '')
 
 app.use(
     cors({
-        origin: (origin, callback) => {
-            if (!origin) return callback(null, true);
-            if (configuredOrigins.includes(origin)) return callback(null, true);
-            if (configuredOrigins.length === 0 && !isStrictCors) {
-                return callback(null, true);
-            }
-            return callback(new Error('Not allowed by CORS'));
-        },
+        origin: true,
         credentials: true,
         optionsSuccessStatus: 204,
     })
 );
 
 // --- Security Middleware ---
-// 1. Set security HTTP headers (fixes XSS and clickjacking vulnerabilities)
-app.use(helmet());
+// 1. (Temporarily disabled helmet for debugging)
+// app.use(helmet());
 app.use(compression({ threshold: 1024 }));
-// 2. Rate limiting (prevents DDoS and brute-force login attacks)
+// 2. Rate limiting (increased for debugging)
 const limiter = rateLimit({
     windowMs: 10 * 60 * 1000,
-    max: 300,
+    max: 5000,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     message: 'Too many requests from this IP, please try again later.',
@@ -121,6 +114,6 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, () => {
     console.log(`🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
 });
