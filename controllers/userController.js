@@ -90,6 +90,14 @@ const EDUCATION_FILE_PATHS = Object.values(EDUCATION_FILE_FIELD_MAP).map((parts)
 
 const REMINDER_CHECK_COOLDOWN_MS = 10 * 60 * 1000;
 const reminderLastCheckedAt = new Map();
+const REMINDER_TRACK_MAX_USERS = toPositiveInt(
+    process.env.REMINDER_TRACK_MAX_USERS,
+    10000
+);
+const REMINDER_TRACK_TTL_MS = toPositiveInt(
+    process.env.REMINDER_TRACK_TTL_MS,
+    24 * 60 * 60 * 1000
+);
 const NOTIFICATION_RETENTION_DAYS = 21;
 const NOTIFICATION_RETENTION_MS = NOTIFICATION_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 const DUMMY_PASSWORD_HASH =
@@ -176,6 +184,20 @@ const filterNotificationsByRetention = (notifications = []) => {
     });
 };
 
+const pruneReminderLastCheckedAt = (now = Date.now()) => {
+    for (const [userId, lastSeen] of reminderLastCheckedAt.entries()) {
+        if (now - Number(lastSeen || 0) > REMINDER_TRACK_TTL_MS) {
+            reminderLastCheckedAt.delete(userId);
+        }
+    }
+
+    while (reminderLastCheckedAt.size > REMINDER_TRACK_MAX_USERS) {
+        const oldestKey = reminderLastCheckedAt.keys().next().value;
+        if (!oldestKey) break;
+        reminderLastCheckedAt.delete(oldestKey);
+    }
+};
+
 const pruneOldNotificationsInDoc = (userDoc) => {
     const current = Array.isArray(userDoc?.notifications) ? userDoc.notifications : [];
     const trimmed = filterNotificationsByRetention(current);
@@ -192,6 +214,7 @@ const ensureDeadlineRemindersForUser = async (userInput, options = {}) => {
     const { force = false } = options;
     const userId = String(userInput._id);
     const now = Date.now();
+    pruneReminderLastCheckedAt(now);
     const lastCheckedAt = reminderLastCheckedAt.get(userId) || 0;
 
     if (!force && now - lastCheckedAt < REMINDER_CHECK_COOLDOWN_MS) {
