@@ -67,6 +67,26 @@ const notificationSchema = new mongoose.Schema(
     { _id: true }
 );
 
+const aiChatHistorySchema = new mongoose.Schema(
+    {
+        message: { type: String, required: true },
+        reply: { type: String, required: true },
+        intent: { type: String, default: 'general' },
+        suggestions: {
+            type: [
+                {
+                    entityType: String,
+                    entityId: String,
+                    title: String,
+                },
+            ],
+            default: [],
+        },
+        createdAt: { type: Date, default: Date.now },
+    },
+    { _id: false }
+);
+
 const userSchema = new mongoose.Schema({
     name: {
         type: String,
@@ -105,6 +125,10 @@ const userSchema = new mongoose.Schema({
     },
     notifications: {
         type: [notificationSchema],
+        default: [],
+    },
+    aiChatHistory: {
+        type: [aiChatHistorySchema],
         default: [],
     },
     sessionVersion: {

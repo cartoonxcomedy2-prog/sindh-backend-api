@@ -14,6 +14,7 @@ const {
 const { enqueueJob } = require('../utils/jobQueue');
 const { invalidateCacheByTags } = require('../middleware/responseCache');
 const { generateApplicationSummaryPdf } = require('../utils/pdfGenerator');
+const { evaluateOpportunityForUser } = require('../utils/eligibilityUtils');
 
 const APPLICATION_STATUSES = ['Applied', 'Admit Card', 'Test', 'Interview', 'Selected', 'Rejected'];
 const APPLICATION_UPDATE_FIELDS = new Set([
@@ -917,12 +918,21 @@ const applyToOpportunity = async (req, res) => {
             return res.status(400).json({ message: `${type} id is required` });
         }
 
+        let targetOpportunity;
         if (type === 'University') {
-            const university = await University.findById(targetId).select('_id name');
-            if (!university) return res.status(404).json({ message: 'University not found' });
+            targetOpportunity = await University.findById(targetId).select(
+                '_id name isActive deadline eligibility programs'
+            );
+            if (!targetOpportunity) {
+                return res.status(404).json({ message: 'University not found' });
+            }
         } else {
-            const scholarship = await Scholarship.findById(targetId).select('_id title');
-            if (!scholarship) return res.status(404).json({ message: 'Scholarship not found' });
+            targetOpportunity = await Scholarship.findById(targetId).select(
+                '_id title isActive deadline eligibility programs'
+            );
+            if (!targetOpportunity) {
+                return res.status(404).json({ message: 'Scholarship not found' });
+            }
         }
 
         const selectedPrograms = normalizeSelectedPrograms(
@@ -946,6 +956,34 @@ const applyToOpportunity = async (req, res) => {
             const userForSnapshot_re = await User.findById(req.user._id)
                 .select('name email phone address city state fatherName dateOfBirth education')
                 .lean();
+
+            if (!userForSnapshot_re) {
+                return res.status(404).json({ message: 'User not found' });
+            }
+
+            const eligibilityCheck = evaluateOpportunityForUser({
+                type: type.toLowerCase(),
+                opportunity: targetOpportunity.toObject(),
+                education: userForSnapshot_re.education || {},
+                selectedPrograms,
+            });
+            if (!eligibilityCheck.canApply) {
+                return res.status(400).json({
+                    message:
+                        eligibilityCheck.reasons[0] ||
+                        'Application blocked by document or eligibility validation.',
+                    code: 'APPLICATION_BLOCKED',
+                    details: {
+                        status: eligibilityCheck.status,
+                        reasons: eligibilityCheck.reasons,
+                        missingDocuments:
+                            eligibilityCheck.documentValidation?.missing || [],
+                        requiredPercentage: eligibilityCheck.requiredPercentage,
+                        userPercentage: eligibilityCheck.userPercentage,
+                        programLevel: eligibilityCheck.programLevel,
+                    },
+                });
+            }
                 
             const snapshot = {
                 ...(userForSnapshot_re?.education || {}),
@@ -996,6 +1034,34 @@ const applyToOpportunity = async (req, res) => {
             const userForSnapshot = await User.findById(req.user._id)
                 .select('name email phone address city state fatherName dateOfBirth education')
                 .lean();
+
+            if (!userForSnapshot) {
+                return res.status(404).json({ message: 'User not found' });
+            }
+
+            const eligibilityCheck = evaluateOpportunityForUser({
+                type: type.toLowerCase(),
+                opportunity: targetOpportunity.toObject(),
+                education: userForSnapshot.education || {},
+                selectedPrograms,
+            });
+            if (!eligibilityCheck.canApply) {
+                return res.status(400).json({
+                    message:
+                        eligibilityCheck.reasons[0] ||
+                        'Application blocked by document or eligibility validation.',
+                    code: 'APPLICATION_BLOCKED',
+                    details: {
+                        status: eligibilityCheck.status,
+                        reasons: eligibilityCheck.reasons,
+                        missingDocuments:
+                            eligibilityCheck.documentValidation?.missing || [],
+                        requiredPercentage: eligibilityCheck.requiredPercentage,
+                        userPercentage: eligibilityCheck.userPercentage,
+                        programLevel: eligibilityCheck.programLevel,
+                    },
+                });
+            }
                 
             const snapshot = {
                 ...(userForSnapshot?.education || {}),

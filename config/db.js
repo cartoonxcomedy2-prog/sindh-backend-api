@@ -1,7 +1,8 @@
+process.env.DOTENV_QUIET = "true";
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const toPositiveInt = (value, fallback) => {
     const parsed = Number.parseInt(value, 10);
@@ -81,6 +82,12 @@ const connectDB = async () => {
     try {
         isConnecting = true;
         mongoose.set('strictQuery', true);
+
+        const maskedUri = (process.env.MONGO_URI || '').replace(
+            /\/\/(.*):(.*)@/,
+            '//***:***@'
+        );
+        console.log(`Connecting to MongoDB: ${maskedUri}`);
 
         const conn = await mongoose.connect(
             process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/sindh_db',

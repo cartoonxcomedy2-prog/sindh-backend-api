@@ -1,3 +1,4 @@
+process.env.DOTENV_QUIET = "true";
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -12,12 +13,13 @@ const connectDB = require('./config/db');
 const sanitizeMiddleware = require('./middleware/sanitizeMiddleware');
 
 // ==================== CLUSTERING FOR MULTI-CORE ====================
-const numCPUs = os.cpus().length;
+// Only spawn multiple workers if we are in production on Render, otherwise use 1 worker for clean local logs
+const isRender = process.env.RENDER === 'true';
+const numCPUs = isRender ? os.cpus().length : 1;
 
-if (cluster.isMaster) {
+if (cluster.isMaster && numCPUs > 1) {
     console.log(`🚀 Master process ${process.pid} spawning ${numCPUs} workers...`);
     
-    // Fork workers equal to CPU cores
     for (let i = 0; i < numCPUs; i++) {
         cluster.fork();
     }
@@ -33,7 +35,7 @@ if (cluster.isMaster) {
 } else {
     // Worker process starts here
     // Load environment variables
-    dotenv.config();
+    dotenv.config({ quiet: true });
 
     // Connect to MongoDB (with internal reconnect handling).
     connectDB();
@@ -123,9 +125,14 @@ const universityRoutes = require('./routes/universityRoutes');
 const scholarshipRoutes = require('./routes/scholarshipRoutes');
 const accountRoutes = require('./routes/accountRoutes');
 const applicationRoutes = require('./routes/applicationRoutes');
+const chatRoutes = require('./routes/chatRoutes');
 
 app.get('/', (req, res) => {
     res.json({ message: 'Welcome to Sindh API' });
+});
+
+app.get('/api', (req, res) => {
+    res.json({ message: 'Welcome to Sindh API', status: 'online' });
 });
 
 // Always return 200 to avoid restart loops from transient DB outages.
@@ -148,6 +155,7 @@ app.use('/api/universities', universityRoutes);
 app.use('/api/scholarships', scholarshipRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/applications', applicationRoutes);
+app.use('/api/chat', chatRoutes);
 
 // Static folder for uploads
 app.use(
@@ -180,6 +188,7 @@ const HOST = '0.0.0.0'; // Explicitly bind to all IPv4 addresses
 
 app.listen(PORT, HOST, () => {
     console.log(`✅ Server running in ${process.env.NODE_ENV} mode on ${HOST}:${PORT} (Worker ${process.pid})`);
+    console.log(`🔗 API Check Link: http://localhost:${PORT}/api`);
 });
 
 // Close worker gracefully
