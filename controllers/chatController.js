@@ -252,7 +252,7 @@ const buildFallbackReply = ({ intent, scope, suggestions, diagnostics }) => {
     return 'UnvSindh AI is ready. Ask about eligibility, missing documents, or why an application was not selected.';
 };
 
-const buildUserScope = async (user) => {
+const buildUserScope = async (user, message = '') => {
     const userRecord = await User.findById(user._id)
         .select('name email education aiChatHistory')
         .lean();
@@ -336,7 +336,7 @@ const buildUserScope = async (user) => {
 
     // Optional: Extract text from PDFs if user is asking about marks/content
     const docContexts = {};
-    const intent = detectIntent(req?.body?.message || '');
+    const intent = detectIntent(message);
     if (intent.wantsDocContent) {
         const edu = userRecord.education || {};
         const transcripts = [
@@ -632,11 +632,11 @@ const buildAdminScope = async () => {
     };
 };
 
-const buildScope = async (user) => {
+const buildScope = async (user, message = '') => {
     if (user.role === 'admin') return buildAdminScope();
     if (user.role === 'university') return buildUniversityScope(user);
     if (user.role === 'scholarship') return buildScholarshipScope(user);
-    return buildUserScope(user);
+    return buildUserScope(user, message);
 };
 
 const buildPromptSnapshot = ({ scope, intent, message }) => {
@@ -800,7 +800,7 @@ exports.handleChat = async (req, res) => {
         };
 
         const intent = detectIntent(message);
-        const scope = await buildScope(req.user);
+        const scope = await buildScope(req.user, message);
 
         const shouldIncludeSuggestions =
             scope.role === 'user' &&
@@ -831,7 +831,7 @@ exports.handleChat = async (req, res) => {
         let reply = '';
 
         // Model fallback chain — ordered by current quota availability
-        const MODEL_CHAIN = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+        const MODEL_CHAIN = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-8b'];
         const sysInstruction = { parts: [{ text: buildSystemPrompt(scope.role) }] };
         const formattedHistory = (scope.recentHistory || []).map(turn => [
             { role: 'user', parts: [{ text: turn.message }] },
