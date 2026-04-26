@@ -116,11 +116,7 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: true,
     },
-    createdAt: {
-        type: Date,
-        default: Date.now,
-    },
-});
+}, { timestamps: true });
 
 // Encrypt password before saving
 userSchema.pre('save', async function () {
@@ -143,5 +139,11 @@ userSchema.index({ role: 1, createdAt: -1 });
 userSchema.index({ role: 1, state: 1, city: 1 });
 userSchema.index({ role: 1, name: 1 });
 userSchema.index({ role: 1, phone: 1 });
+
+userSchema.index({ name: 1 });
+userSchema.index({ phone: 1 });
+userSchema.index({ role: 1 });
+userSchema.index({ country: 1, state: 1, city: 1 });
+userSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('User', userSchema);

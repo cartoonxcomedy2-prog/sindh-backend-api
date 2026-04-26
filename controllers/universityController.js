@@ -164,6 +164,24 @@ const normalizeEmail = (rawEmail) =>
         .trim()
         .toLowerCase();
 
+const buildAdminOwnershipQuery = (user) => {
+    const userId = user?._id ? String(user._id) : '';
+    const email = normalizeEmail(user?.email || '');
+    const or = [];
+    if (userId) {
+        or.push({ 'adminAccount.userId': userId });
+    }
+    if (email) {
+        or.push({
+            'adminAccount.email': {
+                $regex: new RegExp(`^${escapeRegex(email)}$`, 'i'),
+            },
+        });
+    }
+    if (or.length === 0) return null;
+    return or.length === 1 ? or[0] : { $or: or };
+};
+
 const invalidateUniversityCaches = () =>
     invalidateCacheByTags([
         'universities-public',
@@ -191,8 +209,9 @@ const getUniversitiesAdminList = async (req, res) => {
     try {
         let query = {};
         if (req.user.role === 'university') {
-            query = { 'adminAccount.userId': req.user._id };
+            query = buildAdminOwnershipQuery(req.user) || { _id: null };
         }
+        // admin and scholarship roles see all universities
         const universities = await University.find(query).sort({ createdAt: -1 });
         res.json({ data: withHasAdmin(universities) });
     } catch (error) {
@@ -267,7 +286,14 @@ const updateUniversity = async (req, res) => {
         }
 
         // Authorization Check: Super Admin can update any, University Admin can update their own
-        if (req.user.role !== 'admin' && String(university.adminAccount?.userId) !== String(req.user._id)) {
+        const ownershipQuery = buildAdminOwnershipQuery(req.user);
+        const isOwner =
+            ownershipQuery &&
+            (await University.exists({
+                _id: university._id,
+                ...ownershipQuery,
+            }));
+        if (req.user.role !== 'admin' && !isOwner) {
             return res.status(403).json({ message: 'Not authorized to update this university' });
         }
 

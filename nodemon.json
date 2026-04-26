@@ -1,0 +1,15 @@
+{
+  "watch": ["."],
+  "ext": "js,json",
+  "ignore": [
+    "node_modules/",
+    "uploads/",
+    "error_log.txt",
+    "temp_archive/",
+    "temp_zip/",
+    "*.zip",
+    "*.rar",
+    "*.log"
+  ],
+  "delay": "1000"
+}

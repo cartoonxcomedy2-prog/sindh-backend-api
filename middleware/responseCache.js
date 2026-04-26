@@ -80,7 +80,7 @@ const getBodyByteSize = (body) => {
     if (body == null) return 0;
     try {
         return Buffer.byteLength(JSON.stringify(body));
-    } catch (_error) {
+    } catch {
         return 0;
     }
 };
@@ -270,7 +270,7 @@ const createResponseCache = (options = {}) => {
                 return res
                     .type('application/json; charset=utf-8')
                     .send(payload);
-            } catch (_error) {
+            } catch {
                 return originalJson(body);
             }
         };

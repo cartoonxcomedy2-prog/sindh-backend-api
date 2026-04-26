@@ -36,10 +36,17 @@ const applicationSchema = mongoose.Schema(
             type: Date,
             default: Date.now,
         },
+        isReapplyEligible: {
+            type: Boolean,
+            default: false,
+        },
         admitCard: String,
         offerLetter: String,
         testDate: Date,
         interviewDate: Date,
+        educationSnapshot: {
+            type: Object,
+        },
         offeredUniversities: [
             {
                 university: {

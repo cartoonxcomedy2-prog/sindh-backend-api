@@ -32,7 +32,7 @@ const cacheUniversityAdminList = createResponseCache({
 router.get(
     '/admin/list',
     protect,
-    authorize('admin', 'university'),
+    authorize('admin', 'university', 'scholarship'),
     cacheUniversityAdminList,
     getUniversitiesAdminList
 );

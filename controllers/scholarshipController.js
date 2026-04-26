@@ -185,6 +185,55 @@ const normalizeScholarshipPayload = (payload = {}) => {
     return normalized;
 };
 
+const syncScholarshipMediaFields = (payload = {}) => {
+    if (
+        typeof payload.thumbnail === 'string' &&
+        payload.thumbnail.trim() &&
+        (!payload.image || !String(payload.image).trim())
+    ) {
+        payload.image = payload.thumbnail;
+    }
+
+    if (
+        typeof payload.image === 'string' &&
+        payload.image.trim() &&
+        (!payload.thumbnail || !String(payload.thumbnail).trim())
+    ) {
+        payload.thumbnail = payload.image;
+    }
+};
+
+const uploadScholarshipMediaIfNeeded = async (payload = {}, title = '') => {
+    if (!payload || typeof payload !== 'object') return;
+
+    const rawThumbnail =
+        typeof payload.thumbnail === 'string' ? payload.thumbnail.trim() : '';
+    const rawImage =
+        typeof payload.image === 'string' ? payload.image.trim() : '';
+    const thumbnailIsBase64 = rawThumbnail.startsWith('data:');
+    const imageIsBase64 = rawImage.startsWith('data:');
+
+    if (thumbnailIsBase64) {
+        payload.thumbnail = await uploadToCloudinary(rawThumbnail, [title, 'thumbnail']);
+        if (!payload.thumbnail) {
+            throw new Error('Failed to upload scholarship thumbnail');
+        }
+    }
+
+    if (imageIsBase64) {
+        if (thumbnailIsBase64 && rawImage === rawThumbnail) {
+            payload.image = payload.thumbnail;
+        } else {
+            payload.image = await uploadToCloudinary(rawImage, [title, 'image']);
+            if (!payload.image) {
+                throw new Error('Failed to upload scholarship image');
+            }
+        }
+    }
+
+    syncScholarshipMediaFields(payload);
+};
+
 const extractUploadFilename = (value) => {
     if (typeof value !== 'string') return '';
     const raw = value.trim();
@@ -234,6 +283,24 @@ const normalizeEmail = (rawEmail) =>
         .trim()
         .toLowerCase();
 
+const buildAdminOwnershipQuery = (user) => {
+    const userId = user?._id ? String(user._id) : '';
+    const email = normalizeEmail(user?.email || '');
+    const or = [];
+    if (userId) {
+        or.push({ 'adminAccount.userId': userId });
+    }
+    if (email) {
+        or.push({
+            'adminAccount.email': {
+                $regex: new RegExp(`^${escapeRegex(email)}$`, 'i'),
+            },
+        });
+    }
+    if (or.length === 0) return null;
+    return or.length === 1 ? or[0] : { $or: or };
+};
+
 const invalidateScholarshipCaches = () =>
     invalidateCacheByTags([
         'scholarships-public',
@@ -264,7 +331,7 @@ const getScholarshipsAdminList = async (req, res) => {
     try {
         let query = {};
         if (req.user.role === 'scholarship') {
-            query = { 'adminAccount.userId': req.user._id };
+            query = buildAdminOwnershipQuery(req.user) || { _id: null };
         }
         const scholarships = await Scholarship.find(query)
             .sort({ createdAt: -1 })
@@ -306,6 +373,7 @@ const getScholarshipById = async (req, res) => {
 const createScholarship = async (req, res) => {
     try {
         const payload = normalizeScholarshipPayload(req.body);
+        syncScholarshipMediaFields(payload);
 
         // Link only if institutional admin is creating
         if (req.user.role === 'scholarship') {
@@ -315,18 +383,7 @@ const createScholarship = async (req, res) => {
             };
         }
 
-        if (payload.thumbnail && payload.thumbnail.startsWith('data:')) {
-            payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.title, 'thumbnail']);
-            if (!payload.thumbnail) {
-                throw new Error('Failed to upload scholarship thumbnail');
-            }
-        }
-        if (payload.image && payload.image.startsWith('data:')) {
-            payload.image = await uploadToCloudinary(payload.image, [payload.title, 'image']);
-            if (!payload.image) {
-                throw new Error('Failed to upload scholarship image');
-            }
-        }
+        await uploadScholarshipMediaIfNeeded(payload, payload.title || '');
 
         const scholarship = new Scholarship(payload);
         const createdScholarship = await scholarship.save();
@@ -348,24 +405,24 @@ const updateScholarship = async (req, res) => {
         }
 
         // Authorization Check
-        if (req.user.role !== 'admin' && String(scholarship.adminAccount?.userId) !== String(req.user._id)) {
+        const ownershipQuery = buildAdminOwnershipQuery(req.user);
+        const isOwner =
+            ownershipQuery &&
+            (await Scholarship.exists({
+                _id: scholarship._id,
+                ...ownershipQuery,
+            }));
+        if (req.user.role !== 'admin' && !isOwner) {
             return res.status(403).json({ message: 'Not authorized to update this scholarship' });
         }
 
         const payload = normalizeScholarshipPayload(req.body);
+        syncScholarshipMediaFields(payload);
 
-        if (payload.thumbnail && payload.thumbnail.startsWith('data:')) {
-            payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.title || scholarship.title, 'thumbnail']);
-            if (!payload.thumbnail) {
-                throw new Error('Failed to upload scholarship thumbnail');
-            }
-        }
-        if (payload.image && payload.image.startsWith('data:')) {
-            payload.image = await uploadToCloudinary(payload.image, [payload.title || scholarship.title, 'image']);
-            if (!payload.image) {
-                throw new Error('Failed to upload scholarship image');
-            }
-        }
+        await uploadScholarshipMediaIfNeeded(
+            payload,
+            payload.title || scholarship.title || ''
+        );
 
         const previousThumbnail = scholarship.thumbnail || '';
         const previousImage = scholarship.image || '';
@@ -374,11 +431,15 @@ const updateScholarship = async (req, res) => {
             runValidators: true,
         });
 
+        const replacedMedia = new Set();
         if (previousThumbnail && payload.thumbnail && previousThumbnail !== payload.thumbnail) {
-            await deleteUploadedFile(previousThumbnail);
+            replacedMedia.add(previousThumbnail);
         }
         if (previousImage && payload.image && previousImage !== payload.image) {
-            await deleteUploadedFile(previousImage);
+            replacedMedia.add(previousImage);
+        }
+        for (const oldMedia of replacedMedia) {
+            await deleteUploadedFile(oldMedia);
         }
 
         invalidateScholarshipCaches();

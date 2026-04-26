@@ -71,11 +71,11 @@ const EDUCATION_FILE_LABEL_MAP = {
 
 const EDUCATION_DOWNLOAD_FIELD_MAP = {
     nationalId: new Set(['file']),
+    personalInfo: new Set(['fatherCnicFile']),
     matric: new Set(['transcript', 'certificate']),
     intermediate: new Set(['transcript', 'certificate']),
     bachelor: new Set(['transcript', 'certificate']),
     masters: new Set(['transcript', 'certificate']),
-    phd: new Set(['transcript', 'certificate']),
     international: new Set([
         'passportPdf',
         'testTranscript',
@@ -84,21 +84,51 @@ const EDUCATION_DOWNLOAD_FIELD_MAP = {
     ]),
 };
 
+const EDUCATION_DOWNLOAD_LABEL_MAP = {
+    personalInfo: {
+        fatherCnicFile: 'father-cnic',
+    },
+    nationalId: {
+        file: 'national-id',
+        fatherCnicFile: 'father-cnic',
+    },
+    matric: {
+        transcript: 'matric-transcript',
+        certificate: 'matric-certificate',
+    },
+    intermediate: {
+        transcript: 'intermediate-transcript',
+        certificate: 'intermediate-certificate',
+    },
+    bachelor: {
+        transcript: 'bachelor-transcript',
+        certificate: 'bachelor-certificate',
+    },
+    masters: {
+        transcript: 'masters-transcript',
+        certificate: 'masters-certificate',
+    },
+    international: {
+        passportPdf: 'passport',
+        testTranscript: 'english-test-transcript',
+        cv: 'curriculum-vitae',
+        recommendationLetter: 'recommendation-letter',
+    },
+};
+
 const EDUCATION_FILE_PATHS = Object.values(EDUCATION_FILE_FIELD_MAP).map((parts) =>
     parts.join('.')
 );
 
 const REMINDER_CHECK_COOLDOWN_MS = 10 * 60 * 1000;
 const reminderLastCheckedAt = new Map();
-const NOTIFICATION_RETENTION_DAYS = 21;
-const NOTIFICATION_RETENTION_MS = NOTIFICATION_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 const DUMMY_PASSWORD_HASH =
     '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36f7M1E4J4Yx3fRbN7b58w2';
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 
 const invalidateUserCaches = (userId) => {
-    const tags = ['users-list'];
+    const tags = ['users-list', 'applications-summary', 'applications-admin-list', 'applications-user-list'];
     const safeId = String(userId || '').trim();
     if (safeId) {
         tags.push(`users-id:${safeId}`);
@@ -115,6 +145,40 @@ const toPositiveInt = (value, fallback) => {
     return parsed;
 };
 
+const sanitizeFileNamePart = (value, fallback = 'document') =>
+    String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 60) || fallback;
+
+const getEducationDownloadLabel = (section, field) =>
+    EDUCATION_DOWNLOAD_LABEL_MAP?.[section]?.[field] || field;
+
+const resolveEducationStoragePath = (section, field) => {
+    const safeSection = String(section || '').trim();
+    const safeField = String(field || '').trim();
+    if (!safeSection || !safeField) return null;
+
+    if (safeField === 'fatherCnicFile') {
+        if (safeSection !== 'personalInfo' && safeSection !== 'nationalId') {
+            return null;
+        }
+        return {
+            section: 'personalInfo',
+            field: 'fatherCnicFile',
+        };
+    }
+
+    const allowed = EDUCATION_DOWNLOAD_FIELD_MAP[safeSection];
+    if (!allowed || !allowed.has(safeField)) return null;
+    return {
+        section: safeSection,
+        field: safeField,
+    };
+};
+
 const MAX_PROFILE_APPLICATIONS = toPositiveInt(
     process.env.USER_PROFILE_APPS_LIMIT,
     200
@@ -128,19 +192,6 @@ const flattenUploadedFiles = (filesInput) => {
         );
     }
     return [];
-};
-
-const isValidEducationSectionField = (section, field) => {
-    const safeSection = String(section || '').trim();
-    const safeField = String(field || '').trim();
-    if (!safeSection || !safeField) return false;
-
-    if (safeSection === 'personalInfo' && safeField === 'fatherCnicFile') {
-        return true;
-    }
-
-    const allowed = EDUCATION_DOWNLOAD_FIELD_MAP[safeSection];
-    return Boolean(allowed && allowed.has(safeField));
 };
 
 const parseDeadlineDate = (rawDate) => {
@@ -168,22 +219,7 @@ const buildReminderBody = (entityName, dateLabel) =>
     `Apply now for ${entityName}. Deadline is ${dateLabel}. Don't miss this opportunity.`;
 
 const filterNotificationsByRetention = (notifications = []) => {
-    const cutoff = Date.now() - NOTIFICATION_RETENTION_MS;
-    return (notifications || []).filter((item) => {
-        const created = new Date(item?.createdAt || 0).getTime();
-        if (!Number.isFinite(created) || created <= 0) return true;
-        return created >= cutoff;
-    });
-};
-
-const pruneOldNotificationsInDoc = (userDoc) => {
-    const current = Array.isArray(userDoc?.notifications) ? userDoc.notifications : [];
-    const trimmed = filterNotificationsByRetention(current);
-    const changed = trimmed.length !== current.length;
-    if (changed) {
-        userDoc.notifications = trimmed;
-    }
-    return changed;
+    return Array.isArray(notifications) ? notifications : [];
 };
 
 const ensureDeadlineRemindersForUser = async (userInput, options = {}) => {
@@ -208,19 +244,17 @@ const ensureDeadlineRemindersForUser = async (userInput, options = {}) => {
     if (!user) return userInput;
 
     let notifications = Array.isArray(user.notifications) ? [...user.notifications] : [];
-    const notificationsBeforeTrim = notifications.length;
     notifications = filterNotificationsByRetention(notifications);
-    const notificationsTrimmed = notifications.length !== notificationsBeforeTrim;
-    if (notificationsTrimmed) {
-        user.notifications = notifications;
-    }
     const existingReminderKeys = new Set(
         notifications
             .map((item) => item?.data?.reminderKey)
             .filter((key) => typeof key === 'string' && key.trim())
     );
 
-    const apps = await Application.find({ user: user._id })
+    const apps = await Application.find({
+        user: user._id,
+        isReapplyEligible: { $ne: true },
+    })
         .select('university scholarship')
         .lean();
 
@@ -337,9 +371,6 @@ const ensureDeadlineRemindersForUser = async (userInput, options = {}) => {
     }
 
     if (generated.length === 0) {
-        if (notificationsTrimmed) {
-            await user.save();
-        }
         return userInput;
     }
 
@@ -457,8 +488,9 @@ const toResponseUser = async (userDoc, withApplications = false) => {
         filteredUser.dateOfBirth = personalInfo.dateOfBirth;
     }
 
-    filteredUser.notifications = filterNotificationsByRetention(
-        filteredUser.notifications
+    filteredUser.notifications = (Array.isArray(filteredUser.notifications)
+        ? filteredUser.notifications
+        : []
     ).sort(
         (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
     );
@@ -471,6 +503,7 @@ const toResponseUser = async (userDoc, withApplications = false) => {
                     'scholarship',
                     'type',
                     'status',
+                    'isReapplyEligible',
                     'selectedPrograms',
                     'appliedAt',
                     'admitCard',
@@ -510,48 +543,31 @@ const toResponseUser = async (userDoc, withApplications = false) => {
 
 const upsertEducationFromPayload = (user, educationPayload) => {
     if (!educationPayload || typeof educationPayload !== 'object') return;
-    const base = user.education && typeof user.education === 'object' ? user.education : {};
+    if (!user.education || typeof user.education !== 'object') user.education = {};
 
-    user.education = {
-        ...base,
-        ...educationPayload,
-        personalInfo: {
-            ...(base.personalInfo || {}),
-            ...(educationPayload.personalInfo || {}),
-        },
-        nationalId: {
-            ...(base.nationalId || {}),
-            ...(educationPayload.nationalId || {}),
-        },
-        matric: {
-            ...(base.matric || {}),
-            ...(educationPayload.matric || {}),
-        },
-        intermediate: {
-            ...(base.intermediate || {}),
-            ...(educationPayload.intermediate || {}),
-        },
-        bachelor: {
-            ...(base.bachelor || {}),
-            ...(educationPayload.bachelor || {}),
-        },
-        masters: {
-            ...(base.masters || {}),
-            ...(educationPayload.masters || {}),
-        },
-        international: {
-            ...(base.international || {}),
-            ...(educationPayload.international || {}),
-        },
-    };
+    const sections = [
+        'personalInfo',
+        'nationalId',
+        'matric',
+        'intermediate',
+        'bachelor',
+        'masters',
+        'international',
+    ];
 
+    for (const section of sections) {
+        if (educationPayload[section] !== undefined) {
+            // Overwrite the section to allow field removal
+            user.education[section] = educationPayload[section];
+        }
+    }
     if (!user.education.nationalId) user.education.nationalId = {};
     user.education.nationalId.country = DEFAULT_COUNTRY;
 };
 
 const assignEducationFiles = async (user, files = []) => {
     if (!files || !files.length) return;
-    const education = user.education && typeof user.education === 'object' ? { ...user.education } : {};
+    const education = JSON.parse(JSON.stringify(user.education || {}));
 
     for (const file of files) {
         const pathParts = EDUCATION_FILE_FIELD_MAP[file.fieldname];
@@ -562,14 +578,16 @@ const assignEducationFiles = async (user, files = []) => {
         const previousFile = getNested(education, pathParts);
         const fileLabel = EDUCATION_FILE_LABEL_MAP[file.fieldname] || file.fieldname;
         
-        const renamed = await uploadToCloudinary(file.path, [
-            user?.name || 'applicant',
+        const renamed = await uploadToCloudinary(file.path, [user?.name || 'applicant',
             'education',
             fileLabel,
-        ]);
+        ], { forcePdf: true, originalName: file.originalname });
         if (!renamed) {
             await deleteUploadedFile(file.path);
-            throw new Error(`Failed to upload ${file.fieldname}`);
+            const original = String(file.originalname || '').trim();
+            throw new Error(
+                `Failed to upload ${file.fieldname}${original ? ` (${original})` : ''}`
+            );
         }
         
         setNested(education, pathParts, renamed);
@@ -787,7 +805,22 @@ const updateUserProfile = async (req, res) => {
         await assignEducationFiles(user, flattenUploadedFiles(req.files));
         await removeReplacedEducationFiles(previousEducation, user.education || {});
 
+        user.markModified('education');
         await user.save();
+
+        // Sync to active (non-final) applications to avoid "Zombie Docs" while keeping completed ones frozen
+        await Application.updateMany(
+            { 
+                user: user._id, 
+                status: { $nin: ['Selected', 'Rejected'] } 
+            },
+            { 
+                $set: { 
+                    educationSnapshot: user.education,
+                    'educationSnapshot.personalInfoSnapshot': user.education.personalInfo 
+                } 
+            }
+        );
 
         const userResponse = await toResponseUser(user, false);
         invalidateUserCaches(user._id);
@@ -803,40 +836,37 @@ const updateUserProfile = async (req, res) => {
 const getUsers = async (req, res) => {
     try {
         const search = String(req.query.search || '').trim();
-        const shouldPaginate =
-            Boolean(req.query.page) || Boolean(req.query.limit) || search.length > 0;
-
         const query = { role: 'user' };
         if (search) {
             const pattern = new RegExp(escapeRegex(search), 'i');
-            query.$or = [{ name: pattern }, { email: pattern }, { phone: pattern }];
-        }
-
-        if (!shouldPaginate) {
-            const users = await User.find(query).sort({ createdAt: -1 });
-            const payload = users.map((u) => {
-                const plain = u.toObject();
-                delete plain.password;
-                return plain;
-            });
-            return res.json({ data: payload });
+            query.$or = [
+                { name: pattern },
+                { email: pattern },
+                { phone: pattern },
+                { country: pattern },
+                { state: pattern },
+                { city: pattern },
+            ];
         }
 
         const page = toPositiveInt(req.query.page, 1);
         const limit = Math.min(toPositiveInt(req.query.limit, 20), 100);
         const skip = (page - 1) * limit;
+        const listSelect =
+            'name email phone country state city isActive createdAt updatedAt';
 
         const [users, total] = await Promise.all([
-            User.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
+            User.find(query)
+                .select(listSelect)
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit)
+                .lean(),
             User.countDocuments(query),
         ]);
-        const payload = users.map((u) => {
-            const plain = u.toObject();
-            delete plain.password;
-            return plain;
-        });
+
         return res.json({
-            data: payload,
+            data: users,
             pagination: {
                 page,
                 limit,
@@ -846,6 +876,7 @@ const getUsers = async (req, res) => {
         });
     } catch (error) {
         return res.status(500).json({ message: error.message });
+
     }
 };
 
@@ -874,6 +905,8 @@ const updateUserByAdmin = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
+        const previousEducation = JSON.parse(JSON.stringify(user.education || {}));
+
         const {
             name,
             email,
@@ -887,6 +920,7 @@ const updateUserByAdmin = async (req, res) => {
             address,
             isActive,
             avatar,
+            education,
         } = req.body;
 
         const normalizedEmail =
@@ -966,6 +1000,19 @@ const updateUserByAdmin = async (req, res) => {
             user.education.personalInfo.contactNumber = normalizePhone(phone);
         }
 
+        if (education && typeof education === 'object') {
+            for (const section in education) {
+                if (education[section] && typeof education[section] === 'object') {
+                    // Replace the section entirely to ensure "old data is cut"
+                    user.education[section] = education[section];
+                }
+            }
+            user.markModified('education');
+        }
+
+        // Cleanup orphaned PDFs
+        await removeReplacedEducationFiles(previousEducation, user.education || {});
+
         await user.save();
 
         const userResponse = await toResponseUser(user, false);
@@ -980,7 +1027,7 @@ const updateUserByAdmin = async (req, res) => {
 // @route   PUT /api/users/:id/education
 const updateUserEducation = async (req, res) => {
     try {
-        if (req.user.role !== 'admin' && String(req.user._id) !== String(req.params.id)) {
+        if (!['admin', 'university', 'scholarship'].includes(req.user.role) && String(req.user._id) !== String(req.params.id)) {
             return res.status(403).json({ message: 'Unauthorized' });
         }
 
@@ -1001,33 +1048,46 @@ const updateUserEducation = async (req, res) => {
         if (!section || !field || !file) {
             return res.status(400).json({ message: 'section, field and file are required' });
         }
-        if (!isValidEducationSectionField(section, field)) {
+        const storagePath = resolveEducationStoragePath(section, field);
+        if (!storagePath) {
             await deleteUploadedFile(file.path);
             return res.status(400).json({ message: 'Invalid education section/field' });
         }
 
-        const education = user.education && typeof user.education === 'object' ? { ...user.education } : {};
-        if (!education[section] || typeof education[section] !== 'object') {
-            education[section] = {};
+        const education = JSON.parse(JSON.stringify(user.education || {}));
+        if (!education[storagePath.section] || typeof education[storagePath.section] !== 'object') {
+            education[storagePath.section] = {};
         }
-        const previousFile = education[section][field];
-        const renameLabel = EDUCATION_FILE_LABEL_MAP[file.fieldname] || field;
-        const renamed = await uploadToCloudinary(file.path, [
-            user?.name || 'applicant',
-            section,
+        const previousFile = education[storagePath.section][storagePath.field];
+        const renameLabel =
+            EDUCATION_FILE_LABEL_MAP[file.fieldname] ||
+            getEducationDownloadLabel(storagePath.section, storagePath.field) ||
+            field;
+        const renamed = await uploadToCloudinary(file.path, [user?.name || 'applicant',
+            storagePath.section,
             renameLabel,
-        ]);
+        ], { forcePdf: true, originalName: file.originalname });
         if (!renamed) {
             await deleteUploadedFile(file.path);
             throw new Error('Failed to upload education file');
         }
-        education[section][field] = renamed;
+        education[storagePath.section][storagePath.field] = renamed;
         user.education = education;
+        user.markModified('education');
 
         if (previousFile && previousFile !== renamed) {
             await deleteUploadedFile(previousFile);
         }
         await user.save();
+
+        // Sync with active application snapshots to reflect the newest version
+        await Application.updateMany(
+            { 
+                user: user._id,
+                status: { $nin: ['Selected', 'Rejected'] }
+            },
+            { $set: { [`educationSnapshot.${storagePath.section}.${storagePath.field}`]: renamed } }
+        );
 
         const userResponse = await toResponseUser(user, false);
         invalidateUserCaches(user._id);
@@ -1041,14 +1101,14 @@ const updateUserEducation = async (req, res) => {
 // @route   GET /api/users/:id/education/:section/:field/download
 const downloadUserEducationFile = async (req, res) => {
     try {
-        if (req.user.role !== 'admin' && String(req.user._id) !== String(req.params.id)) {
+        if (!['admin', 'university', 'scholarship'].includes(req.user.role) && String(req.user._id) !== String(req.params.id)) {
             return res.status(403).json({ message: 'Unauthorized' });
         }
 
         const section = String(req.params.section || '').trim();
         const field = String(req.params.field || '').trim();
-        const allowedFields = EDUCATION_DOWNLOAD_FIELD_MAP[section];
-        if (!allowedFields || !allowedFields.has(field)) {
+        const storagePath = resolveEducationStoragePath(section, field);
+        if (!storagePath) {
             return res.status(400).json({ message: 'Invalid education file path' });
         }
 
@@ -1057,7 +1117,7 @@ const downloadUserEducationFile = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const filename = user?.education?.[section]?.[field];
+        const filename = user?.education?.[storagePath.section]?.[storagePath.field];
         if (typeof filename !== 'string' || !filename.trim()) {
             return res.status(404).json({ message: 'Document not found' });
         }
@@ -1069,20 +1129,21 @@ const downloadUserEducationFile = async (req, res) => {
         if (filename.includes('://')) {
             try {
                 fallbackSourceName = path.basename(new URL(filename).pathname);
-            } catch (_error) {
+            } catch {
                 fallbackSourceName = path.basename(filename.trim());
             }
         }
         const ext = path.extname(fallbackSourceName) || '.pdf';
-        const fallbackName = `${String(user.name || 'applicant')
-            .trim()
-            .replace(/\s+/g, '-')
-            .toLowerCase()}-${section}-${field}${ext}`;
+        const fallbackName = `${sanitizeFileNamePart(user.name || 'applicant', 'applicant')}-${sanitizeFileNamePart(
+            getEducationDownloadLabel(section, field),
+            field
+        )}${ext}`;
 
         const sent = await downloadStoredFile(
             res,
             filename,
-            requestedName || fallbackName
+            requestedName || fallbackName,
+            { forcePdf: true }
         );
         if (!sent) {
             return res.status(404).json({ message: 'File does not exist on server' });
@@ -1097,7 +1158,7 @@ const downloadUserEducationFile = async (req, res) => {
 // @route   DELETE /api/users/:id/education/:section/:field
 const deleteUserEducationField = async (req, res) => {
     try {
-        if (req.user.role !== 'admin' && String(req.user._id) !== String(req.params.id)) {
+        if (!['admin', 'university', 'scholarship'].includes(req.user.role) && String(req.user._id) !== String(req.params.id)) {
             return res.status(403).json({ message: 'Unauthorized' });
         }
 
@@ -1107,18 +1168,32 @@ const deleteUserEducationField = async (req, res) => {
         }
 
         const { section, field } = req.params;
-        const education = user.education && typeof user.education === 'object' ? { ...user.education } : {};
+        const storagePath = resolveEducationStoragePath(section, field);
+        if (!storagePath) {
+            return res.status(400).json({ message: 'Invalid education file path' });
+        }
+        const education = JSON.parse(JSON.stringify(user.education || {}));
 
-        if (education[section] && typeof education[section] === 'object') {
-            const previousFile = education[section][field];
-            delete education[section][field];
+        if (education[storagePath.section] && typeof education[storagePath.section] === 'object') {
+            const previousFile = education[storagePath.section][storagePath.field];
+            delete education[storagePath.section][storagePath.field];
             if (previousFile) {
                 await deleteUploadedFile(previousFile);
             }
         }
 
         user.education = education;
+        user.markModified('education');
         await user.save();
+
+        // Also remove from any active application snapshots to avoid "Zombie Docs"
+        await Application.updateMany(
+            { 
+                user: user._id,
+                status: { $nin: ['Selected', 'Rejected'] }
+            },
+            { $unset: { [`educationSnapshot.${storagePath.section}.${storagePath.field}`]: 1 } }
+        );
 
         const userResponse = await toResponseUser(user, false);
         invalidateUserCaches(user._id);
@@ -1134,11 +1209,6 @@ const getUserNotifications = async (req, res) => {
     try {
         const user = await User.findById(req.user._id).select('notifications');
         if (!user) return res.status(404).json({ message: 'User not found' });
-
-        const pruned = pruneOldNotificationsInDoc(user);
-        if (pruned) {
-            await user.save();
-        }
 
         await ensureDeadlineRemindersForUser(user);
         const notifications = (user.notifications || []).sort(
@@ -1158,7 +1228,6 @@ const markAllNotificationsAsRead = async (req, res) => {
         const user = await User.findById(req.user._id);
         if (!user) return res.status(404).json({ message: 'User not found' });
 
-        pruneOldNotificationsInDoc(user);
         user.notifications = (user.notifications || []).map((item) => {
             const plain = item && typeof item.toObject === 'function' ? item.toObject() : { ...item };
             return {

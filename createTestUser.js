@@ -10,7 +10,7 @@ const createTestUser = async () => {
         
         await User.findOneAndDelete({ email: 'user@sindh.com' }); // Clean old test user if exists
 
-        const user = await User.create({
+        await User.create({
             name: 'Test User',
             email: 'user@sindh.com',
             password: 'user123',

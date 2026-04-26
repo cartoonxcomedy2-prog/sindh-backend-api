@@ -16,7 +16,7 @@ const {
     markAllNotificationsAsRead,
     deleteUserByAdmin,
 } = require('../controllers/userController');
-const { protect, admin } = require('../middleware/authMiddleware');
+const { protect, admin, authorize } = require('../middleware/authMiddleware');
 const { mixedUpload } = require('../middleware/uploadMiddleware');
 const { createResponseCache } = require('../middleware/responseCache');
 
@@ -48,10 +48,10 @@ router.put('/profile', protect, mixedUpload, updateUserProfile);
 router.get('/notifications', protect, getUserNotifications);
 router.put('/notifications/read', protect, markAllNotificationsAsRead);
 router.get('/:id/education/:section/:field/download', protect, downloadUserEducationFile);
-router.get('/:id', protect, admin, cacheUserById, getUserById);
+router.get('/:id', protect, authorize('admin', 'university', 'scholarship'), cacheUserById, getUserById);
 router.put('/:id/education', protect, mixedUpload, updateUserEducation);
 router.delete('/:id/education/:section/:field', protect, deleteUserEducationField);
-router.put('/:id/profile', protect, admin, updateUserByAdmin);
+router.put('/:id/profile', protect, authorize('admin', 'university', 'scholarship'), updateUserByAdmin);
 router.delete('/:id', protect, admin, deleteUserByAdmin);
 
 module.exports = router;

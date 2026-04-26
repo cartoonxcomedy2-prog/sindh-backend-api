@@ -21,6 +21,8 @@ const storage = multer.diskStorage({
 
 const allowedMime = new Set([
     'application/pdf',
+    'application/x-pdf',
+    'application/octet-stream',
     'image/png',
     'image/jpeg',
     'image/jpg',
@@ -60,7 +62,8 @@ const upload = multer({
         const isMimeAllowed = allowedMime.has(file.mimetype);
         const isExtAllowed = allowedExt.has(ext);
 
-        if (!isMimeAllowed || !isExtAllowed) {
+        // Some mobile pickers send generic MIME types for valid PDF/image files.
+        if (!isMimeAllowed && !isExtAllowed) {
             return cb(new Error('Only PDF and image files are allowed'));
         }
         cb(null, true);

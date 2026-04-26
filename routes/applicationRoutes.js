@@ -9,6 +9,7 @@ const {
     updateApplicationStatus,
     updateUniversityStatus,
     bulkUpdateStatus,
+    resetOpportunityApplications,
     downloadApplicationDocument,
     downloadApplicationBundle,
     deleteApplication,
@@ -55,6 +56,12 @@ router.get(
 router.get('/me', protect, cacheMyApplications, getMyApplications);
 router.post('/apply', protect, authorize('user'), applyToOpportunity);
 router.put('/bulk-status', protect, authorize('admin', 'university', 'scholarship'), bulkUpdateStatus);
+router.post(
+    '/reset-opportunity',
+    protect,
+    authorize('admin', 'university', 'scholarship'),
+    resetOpportunityApplications
+);
 router.get('/:id/download-bundle', protect, authorize('admin', 'university', 'scholarship', 'user'), downloadApplicationBundle);
 router.get('/:id/download-doc/:field', protect, authorize('admin', 'university', 'scholarship', 'user'), downloadApplicationDocument);
 router.put('/:id/university-status', protect, authorize('admin', 'university', 'scholarship'), appDocUpload, updateUniversityStatus);
