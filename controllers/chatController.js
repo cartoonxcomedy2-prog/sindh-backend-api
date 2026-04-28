@@ -105,12 +105,12 @@ const wantsHowToGuide = (message = '') => HOW_TO_KEYWORDS.test(cleanText(message
 
 const buildOutOfScopeReply = (role = 'user') => {
     if (role === 'admin') {
-        return 'Main sirf UnvSindh portal ke data aur workflows par answer deta hoon. Is se bahar queries ka jawab nahi deta.';
+        return 'Main sirf StudentTech portal ke data aur workflows par answer deta hoon. Is se bahar queries ka jawab nahi deta.';
     }
     if (role === 'university' || role === 'scholarship') {
-        return 'Main sirf aapke UnvSindh admin scope ke data par madad karta hoon. Irrelevant queries ka jawab nahi de sakta.';
+        return 'Main sirf aapke StudentTech admin scope ke data par madad karta hoon. Irrelevant queries ka jawab nahi de sakta.';
     }
-    return 'Main sirf UnvSindh app (universities, scholarships, documents, applications) se related sawalon ka jawab deta hoon.';
+    return 'Main sirf StudentTech app (universities, scholarships, documents, applications) se related sawalon ka jawab deta hoon.';
 };
 
 const buildTrackingRedirectReply = () =>
@@ -249,7 +249,7 @@ const buildFallbackReply = ({ intent, scope, suggestions, diagnostics }) => {
         return `Top matches prepared for you: ${top}. Open any card to view full details.`;
     }
 
-    return 'UnvSindh AI is ready. Ask about eligibility, missing documents, or why an application was not selected.';
+    return 'StudentTech AI is ready. Ask about eligibility, missing documents, or why an application was not selected.';
 };
 
 const buildUserScope = async (user, message = '') => {
@@ -694,12 +694,12 @@ const buildPromptSnapshot = ({ scope, intent, message }) => {
 const buildSystemPrompt = (scopeRole) => {
     const roleLine =
         scopeRole === 'admin'
-            ? 'You are UnvSindh Super Admin AI analyst.'
+            ? 'You are StudentTech Super Admin AI analyst.'
             : scopeRole === 'university'
-            ? 'You are UnvSindh University Sub-Admin AI assistant.'
+            ? 'You are StudentTech University Sub-Admin AI assistant.'
             : scopeRole === 'scholarship'
-            ? 'You are UnvSindh Scholarship Sub-Admin AI assistant.'
-            : 'You are UnvSindh student counselor AI assistant.';
+            ? 'You are StudentTech Scholarship Sub-Admin AI assistant.'
+            : 'You are StudentTech student counselor AI assistant.';
 
     const privacyLine =
         scopeRole === 'user'
