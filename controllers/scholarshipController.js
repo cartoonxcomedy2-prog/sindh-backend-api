@@ -214,7 +214,7 @@ const uploadScholarshipMediaIfNeeded = async (payload = {}, title = '') => {
     const imageIsBase64 = rawImage.startsWith('data:');
 
     if (thumbnailIsBase64) {
-        payload.thumbnail = await uploadToCloudinary(rawThumbnail, [title, 'thumbnail']);
+        payload.thumbnail = await uploadToCloudinary(rawThumbnail, [title, 'scholarship', 'thumbnail']);
         if (!payload.thumbnail) {
             throw new Error('Failed to upload scholarship thumbnail');
         }
@@ -224,7 +224,7 @@ const uploadScholarshipMediaIfNeeded = async (payload = {}, title = '') => {
         if (thumbnailIsBase64 && rawImage === rawThumbnail) {
             payload.image = payload.thumbnail;
         } else {
-            payload.image = await uploadToCloudinary(rawImage, [title, 'image']);
+            payload.image = await uploadToCloudinary(rawImage, [title, 'scholarship', 'image']);
             if (!payload.image) {
                 throw new Error('Failed to upload scholarship image');
             }

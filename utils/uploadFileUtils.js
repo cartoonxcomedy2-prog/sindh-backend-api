@@ -9,6 +9,8 @@ const uploadsDir = path.resolve(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
+// Set root uploads folder to 755
+try { fs.chmodSync(uploadsDir, 0o755); } catch (e) {}
 
 const imageExtSet = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 const pdfExtSet = new Set(['.pdf']);
@@ -95,6 +97,7 @@ const fetchRemoteBuffer = async (remoteUrl, redirectCount = 0) => {
 };
 
 const uploadToCloudinary = async (fileSource, parts = [], options = {}) => {
+    // Always use local storage - Cloudinary removed
     if (!fileSource) return '';
 
     const nameParts = (Array.isArray(parts) ? parts : [parts])
@@ -102,148 +105,141 @@ const uploadToCloudinary = async (fileSource, parts = [], options = {}) => {
         .filter(Boolean);
 
     const baseName = nameParts.join('-') || 'document';
-    const publicId = `${baseName}-${Date.now()}`;
     const forcePdf = options?.forcePdf === true;
     const originalName = options?.originalName || '';
 
+    // Determine subfolder based on options or parts
+    let subFolder = options?.subFolder || '';
+    const partsLower = nameParts.map(p => p.toLowerCase());
+    
+    if (!subFolder) {
+        if (partsLower.some(p => p.includes('banner'))) {
+            subFolder = 'banners';
+        } else if (partsLower.some(p => p.includes('scholarship'))) {
+            subFolder = 'scholarships';
+        } else if (partsLower.some(p => p.includes('university')) || partsLower.some(p => p.includes('thumbnail')) || partsLower.some(p => p.includes('logo'))) {
+            subFolder = 'universities';
+        } else if (partsLower.some(p => p.includes('education')) || partsLower.some(p => p.includes('transcript')) || partsLower.some(p => p.includes('certificate')) || partsLower.some(p => p.includes('cnic')) || partsLower.some(p => p.includes('passport'))) {
+            subFolder = 'education';
+        } else if (partsLower.some(p => p.includes('admit-card')) || partsLower.some(p => p.includes('offer-letter'))) {
+            subFolder = 'applications';
+        } else if (partsLower.some(p => p.includes('avatar')) || partsLower.some(p => p.includes('profile'))) {
+            subFolder = 'avatars';
+        } else if (partsLower.some(p => p.includes('image'))) {
+            subFolder = 'scholarships'; // Fallback for general images to scholarships if not caught above
+        }
+    }
+    
+    const targetDir = subFolder ? path.join(uploadsDir, subFolder) : uploadsDir;
+    if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+    }
+    // Automatically set permissions to 755 for the directory
+    try { fs.chmodSync(targetDir, 0o755); } catch (e) {}
+
     let uploadSource = fileSource;
     const cleanupPaths = new Set();
-    const persistLocalUpload = () => {
-        const ext = (path.extname(uploadSource) || path.extname(originalName) || '').toLowerCase();
-        
-        // If it's a data URL, we need to decode and write it to a file
-        if (typeof uploadSource === 'string' && uploadSource.startsWith('data:')) {
-            try {
-                const matches = uploadSource.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
-                if (!matches || matches.length !== 3) return '';
 
-                const mimeType = matches[1];
-                const base64Data = matches[2];
-                const buffer = Buffer.from(base64Data, 'base64');
-                
-                // Infer extension from mimeType if possible
-                let detectedExt = ext;
-                if (!detectedExt) {
-                    if (mimeType.includes('pdf')) detectedExt = '.pdf';
-                    else if (mimeType.includes('jpeg')) detectedExt = '.jpg';
-                    else if (mimeType.includes('png')) detectedExt = '.png';
-                    else if (mimeType.includes('webp')) detectedExt = '.webp';
-                    else detectedExt = '.bin';
-                }
+    // Helper to persist to local storage
+    const persistLocalUpload = async (source, isBase64 = false, base64Mime = '') => {
+        let ext = (path.extname(source) || path.extname(originalName) || '').toLowerCase();
+        let finalSource = source;
 
-                const finalLocalName = `${baseName}-${Date.now()}${detectedExt}`;
-                const finalLocalPath = path.join(uploadsDir, finalLocalName);
-                fs.writeFileSync(finalLocalPath, buffer);
-                return '/uploads/' + finalLocalName;
-            } catch (e) {
-                console.error('Base64 local upload failed:', e);
-                return '';
+        if (isBase64) {
+            const buffer = Buffer.from(source, 'base64');
+            if (!ext) {
+                if (base64Mime.includes('pdf')) ext = '.pdf';
+                else if (base64Mime.includes('jpeg')) ext = '.jpg';
+                else if (base64Mime.includes('png')) ext = '.png';
+                else if (base64Mime.includes('webp')) ext = '.webp';
+                else ext = '.bin';
             }
+
+            // PDF Conversion for Base64 if forced
+            if (forcePdf && imageExtSet.has(ext)) {
+                try {
+                    const pdfBuffer = await convertImageBufferToPdf(buffer, baseName);
+                    const finalLocalName = `${baseName}-${Date.now()}.pdf`;
+                    const finalLocalPath = path.join(targetDir, finalLocalName);
+                    fs.writeFileSync(finalLocalPath, pdfBuffer);
+                    // Force 644 permission for files so they are readable by the web server
+                    try { fs.chmodSync(finalLocalPath, 0o644); } catch (e) {}
+                    return (subFolder ? `/uploads/${subFolder}/` : '/uploads/') + finalLocalName;
+                } catch (err) {
+                    console.error('Base64 PDF conversion failed:', err);
+                }
+            }
+
+            const finalLocalName = `${baseName}-${Date.now()}${ext}`;
+            const finalLocalPath = path.join(targetDir, finalLocalName);
+            fs.writeFileSync(finalLocalPath, buffer);
+            // Force 644 permission for files so they are readable by the web server
+            try { fs.chmodSync(finalLocalPath, 0o644); } catch (e) {}
+            return (subFolder ? `/uploads/${subFolder}/` : '/uploads/') + finalLocalName;
         }
 
+        // For local files
         const finalLocalName = `${baseName}-${Date.now()}${ext}`;
-        const finalLocalPath = path.join(uploadsDir, finalLocalName);
+        const finalLocalPath = path.join(targetDir, finalLocalName);
 
         try {
-            if (typeof uploadSource === 'string' && fs.existsSync(uploadSource)) {
-                if (path.resolve(uploadSource) !== path.resolve(finalLocalPath)) {
-                    fs.renameSync(uploadSource, finalLocalPath);
-                    uploadSource = finalLocalPath;
+            if (typeof finalSource === 'string' && fs.existsSync(finalSource)) {
+                if (path.resolve(finalSource) !== path.resolve(finalLocalPath)) {
+                    fs.renameSync(finalSource, finalLocalPath);
+                    finalSource = finalLocalPath;
                 }
-                return '/uploads/' + path.basename(uploadSource);
+                return (subFolder ? `/uploads/${subFolder}/` : '/uploads/') + path.basename(finalSource);
             }
         } catch (e) {
-            console.error('Local upload fallback failed:', e);
+            console.error('Local file persistence failed:', e);
         }
         return '';
     };
-    const inferSourceExtension = (sourceValue, fallbackName = '') => {
-        const primaryExt = path.extname(String(sourceValue || '')).toLowerCase();
-        if (primaryExt) return primaryExt;
-        return path.extname(String(fallbackName || '')).toLowerCase();
-    };
+
     const isLocalUploadPath = (sourceValue) =>
         typeof sourceValue === 'string' &&
         !sourceValue.startsWith('data:') &&
         fs.existsSync(sourceValue);
-    let shouldUploadAsRaw = false;
-    let sourceExt = inferSourceExtension(uploadSource, originalName);
 
-    if (isLocalUploadPath(fileSource)) {
-        cleanupPaths.add(fileSource);
+    // Handle Data URLs (Base64)
+    if (typeof uploadSource === 'string' && uploadSource.startsWith('data:')) {
+        const matches = uploadSource.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+            return await persistLocalUpload(matches[2], true, matches[1]);
+        }
+        return '';
     }
 
-    if (forcePdf) {
-        if (isLocalUploadPath(uploadSource) && pdfExtSet.has(sourceExt)) {
-            shouldUploadAsRaw = true;
-        } else if (isLocalUploadPath(uploadSource) && imageExtSet.has(sourceExt)) {
+    // Handle Local Files (Multer)
+    if (isLocalUploadPath(uploadSource)) {
+        cleanupPaths.add(uploadSource);
+        let sourceExt = (path.extname(uploadSource) || path.extname(originalName) || '').toLowerCase();
+
+        if (forcePdf && imageExtSet.has(sourceExt)) {
             try {
                 const convertedPdfPath = await convertImageFileToPdf(uploadSource, baseName);
                 uploadSource = convertedPdfPath;
                 cleanupPaths.add(convertedPdfPath);
-                sourceExt = '.pdf';
-                shouldUploadAsRaw = true;
             } catch (error) {
-                shouldUploadAsRaw = false;
-                console.error('PDF conversion failed, uploading original file instead:', error);
+                console.error('File-to-PDF conversion failed:', error);
             }
-        } else if (pdfExtSet.has(sourceExt)) {
-            shouldUploadAsRaw = true;
         }
     }
 
-    const resourceType = shouldUploadAsRaw ? 'raw' : 'auto';
-
-    if (!process.env.CLOUDINARY_API_KEY) {
-        const localFallback = persistLocalUpload();
-        if (localFallback) return localFallback;
-        return '';
-    }
-
-    try {
-        const result = await cloudinary.uploader.upload(uploadSource, {
-            folder: 'sindh_uploads',
-            public_id: publicId,
-            resource_type: resourceType,
-        });
-
-        for (const tempPath of cleanupPaths) {
-            try {
-                if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-            } catch {}
-        }
-
-        return result.secure_url;
-    } catch (error) {
-        const localFallback = persistLocalUpload();
-
-        for (const tempPath of cleanupPaths) {
-            try {
-                if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-            } catch {}
-        }
-
-        if (localFallback) {
-            console.error('Cloudinary Upload Error, stored locally:', error);
-            return localFallback;
-        }
-
-        console.error('Cloudinary Upload Error:', error);
-        return '';
-    }
+    return await persistLocalUpload(uploadSource);
 };
 
 const removeFromCloudinary = async (fileUrl) => {
-    if (!fileUrl || !fileUrl.includes('cloudinary')) return;
-    try {
-        const decoded = decodeURIComponent(String(fileUrl));
-        const matched = decoded.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z0-9]+(?:\?.*)?$/i);
-        const publicId = matched?.[1] || '';
-        if (!publicId) return;
-        await cloudinary.uploader.destroy(publicId, { resource_type: 'image', invalidate: true });
-        await cloudinary.uploader.destroy(publicId, { resource_type: 'raw', invalidate: true });
-    } catch (error) {
-        console.error('Cloudinary Delete Error:', error);
+    // Now handles local file deletion instead of Cloudinary
+    if (!fileUrl) return;
+    
+    const localPath = resolveLocalUploadPath(fileUrl);
+    if (localPath && fs.existsSync(localPath)) {
+        try {
+            fs.unlinkSync(localPath);
+        } catch (error) {
+            console.error('Local file delete error:', error);
+        }
     }
 };
 
@@ -266,6 +262,17 @@ const resolveLocalUploadPath = (storedValue) => {
         const normalizedAbsolute = path.resolve(raw);
         if (normalizedAbsolute.startsWith(uploadsDir)) {
             return normalizedAbsolute;
+        }
+    }
+
+    // Handle subfolder paths like /uploads/banners/filename.jpg
+    const uploadsPathMatch = raw.match(/^\/?uploads\/([^/]+)\/(.+)$/);
+    if (uploadsPathMatch) {
+        const subFolder = uploadsPathMatch[1];
+        const fileName = uploadsPathMatch[2];
+        const target = path.resolve(uploadsDir, subFolder, fileName);
+        if (target.startsWith(uploadsDir)) {
+            return target;
         }
     }
 
@@ -332,7 +339,16 @@ const downloadStoredFile = async (res, filenameOrUrl, preferredName = '', option
     } else if (providedExt !== fileExtension) {
         downloadName = `${downloadName.slice(0, -providedExt.length)}${fileExtension}`;
     }
-    res.setHeader('Content-Type', 'application/octet-stream');
+    const mimeMap = {
+        '.pdf': 'application/pdf',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.webp': 'image/webp',
+        '.zip': 'application/zip',
+        '.rar': 'application/x-rar-compressed'
+    };
+    res.setHeader('Content-Type', mimeMap[fileExtension] || 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
     res.send(file.buffer);
     return true;

@@ -128,11 +128,11 @@ const applicationRoutes = require('./routes/applicationRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 
 app.get('/', (req, res) => {
-    res.json({ message: 'Welcome to Sindh API' });
+    res.json({ message: 'Welcome to StudentTech API' });
 });
 
 app.get('/api', (req, res) => {
-    res.json({ message: 'Welcome to Sindh API', status: 'online' });
+    res.json({ message: 'Welcome to StudentTech API', status: 'online' });
 });
 
 // Always return 200 to avoid restart loops from transient DB outages.
@@ -157,13 +157,38 @@ app.use('/api/accounts', accountRoutes);
 app.use('/api/applications', applicationRoutes);
 app.use('/api/chat', chatRoutes);
 
-// Static folder for uploads
-app.use(
-    '/uploads',
-    express.static(path.join(__dirname, '/uploads'), {
-        maxAge: isProduction ? '10m' : 0,
-    })
-);
+// Diagnostic route to check paths on live server
+app.get('/api/debug-path', (req, res) => {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const uploadsPath = path.resolve(__dirname, 'uploads');
+        res.json({
+            cwd: process.cwd(),
+            dirname: __dirname,
+            expectedUploadsPath: uploadsPath,
+            exists: fs.existsSync(uploadsPath),
+            contents: fs.existsSync(uploadsPath) ? fs.readdirSync(uploadsPath).slice(0, 15) : 'Folder Not Found',
+            env: process.env.NODE_ENV,
+            isRender: !!process.env.RENDER
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Static folder for uploads - Supporting both /uploads and /api/uploads
+const uploadsPath = path.resolve(__dirname, 'uploads');
+const staticConfig = express.static(uploadsPath, {
+    maxAge: isProduction ? '1d' : 0,
+    setHeaders: (res) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    }
+});
+
+app.use('/uploads', staticConfig);
+app.use('/api/uploads', staticConfig);
 
 // Error handling middleware
 app.use((err, req, res, _next) => {

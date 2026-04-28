@@ -93,7 +93,7 @@ const generateApplicationSummaryPdf = (application, user) => {
         for (let i = 0; i < pageCount; i++) {
             doc.switchToPage(i);
             doc.fillColor('#999').fontSize(8).text(
-                `Sindh Portal Application Summary - Page ${i + 1} of ${pageCount}`,
+                `StudentTech Portal Application Summary - Page ${i + 1} of ${pageCount}`,
                 50,
                 doc.page.height - 50,
                 { align: 'center' }

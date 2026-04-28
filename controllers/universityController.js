@@ -254,13 +254,13 @@ const createUniversity = async (req, res) => {
         }
 
         if (payload.thumbnail && payload.thumbnail.startsWith('data:')) {
-            payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.name, 'thumbnail']);
+            payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.name, 'university', 'thumbnail']);
             if (!payload.thumbnail) {
                 throw new Error('Failed to upload university thumbnail');
             }
         }
         if (payload.logo && payload.logo.startsWith('data:')) {
-            payload.logo = await uploadToCloudinary(payload.logo, [payload.name, 'logo']);
+            payload.logo = await uploadToCloudinary(payload.logo, [payload.name, 'university', 'logo']);
             if (!payload.logo) {
                 throw new Error('Failed to upload university logo');
             }
@@ -299,13 +299,13 @@ const updateUniversity = async (req, res) => {
 
         const payload = normalizeUniversityPayload(req.body);
         if (payload.thumbnail && payload.thumbnail.startsWith('data:')) {
-            payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.name || university.name, 'thumbnail']);
+            payload.thumbnail = await uploadToCloudinary(payload.thumbnail, [payload.name || university.name, 'university', 'thumbnail']);
             if (!payload.thumbnail) {
                 throw new Error('Failed to upload university thumbnail');
             }
         }
         if (payload.logo && payload.logo.startsWith('data:')) {
-            payload.logo = await uploadToCloudinary(payload.logo, [payload.name || university.name, 'logo']);
+            payload.logo = await uploadToCloudinary(payload.logo, [payload.name || university.name, 'university', 'logo']);
             if (!payload.logo) {
                 throw new Error('Failed to upload university logo');
             }
